@@ -1,0 +1,85 @@
+services:
+  mongodb:
+    image: mongo:7
+    container_name: mafia-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --username $MONGO_INITDB_ROOT_USERNAME --password $MONGO_INITDB_ROOT_PASSWORD --authenticationDatabase admin --eval \"db.adminCommand('ping')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  mafia-game-engine:
+    image: maven:3.9-eclipse-temurin-21
+    container_name: mafia-game-engine
+    working_dir: /workspace
+    command: mvn spring-boot:run
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
+      SPRING_DATA_MONGODB_URI: ${SPRING_DATA_MONGODB_URI}
+    volumes:
+      - ./mafia-game-engine:/workspace
+      - maven_cache:/root/.m2
+    ports:
+      - "8080:8080"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  mafia-event-service:
+    image: golang:1.23
+    container_name: mafia-event-service
+    working_dir: /workspace
+    command: sh -c "go mod tidy && go run ./main.go"
+    environment:
+      EVENT_SERVICE_PORT: ${EVENT_SERVICE_PORT}
+    volumes:
+      - ./mafia-event-service:/workspace
+    ports:
+      - "8081:8081"
+
+  mafia-gateway-service:
+    image: python:3.12-slim
+    container_name: mafia-gateway-service
+    working_dir: /workspace
+    command: sh -c "pip install -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000"
+    environment:
+      GATEWAY_HOST: ${GATEWAY_HOST}
+      GATEWAY_PORT: ${GATEWAY_PORT}
+      SPRING_ENGINE_BASE_URL: ${SPRING_ENGINE_BASE_URL}
+      GIN_EVENT_BASE_URL: ${GIN_EVENT_BASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: ${JWT_ALGORITHM}
+      JWT_EXPIRES_MINUTES: ${JWT_EXPIRES_MINUTES}
+    volumes:
+      - ./mafia-gateway-service:/workspace
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mafia-game-engine
+      - mafia-event-service
+
+  mafia-engine-frontend:
+    image: node:22-alpine
+    container_name: mafia-engine-frontend
+    working_dir: /workspace
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
+    environment:
+      VITE_GATEWAY_BASE_URL: ${VITE_GATEWAY_BASE_URL}
+    volumes:
+      - ./mafia-engine-frontend:/workspace
+    ports:
+      - "5173:5173"
+    depends_on:
+      - mafia-gateway-service
+
+volumes:
+  mongo_data:
+  maven_cache:

@@ -98,7 +98,6 @@ build/
 docker-compose.override.yml
 docker-compose.*.override.yml
 **/Dockerfile.*
-docker-compose*.yml
 docker-stack.yml
 
 # -----------------
