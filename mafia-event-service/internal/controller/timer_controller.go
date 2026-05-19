@@ -32,7 +32,7 @@ func (tc *TimerController) GetTimerSnapshot(c *gin.Context) {
 }
 
 func (tc *TimerController) GetEventFeed(c *gin.Context) {
-    c.JSON(http.StatusOK, service.BuildEventFeed(c.Param("roomId")))
+    c.JSON(http.StatusOK, service.BuildEventFeed(c.Param("roomId"),tc.eventStore))
 }
 
 func (tc *TimerController) PushEvent(c *gin.Context) {

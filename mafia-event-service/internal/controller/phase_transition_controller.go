@@ -63,7 +63,7 @@ func (ptc *PhaseTransitionController) TransitionPhase(c *gin.Context) {
 	c.JSON(http.StatusOK, models.PhaseTransitionEvent{
 		RoomID:    roomID,
 		NextPhase: req.NextPhase,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Timestamp: time.Now().UTC(),
 	})
 }
 
@@ -79,7 +79,7 @@ func (ptc *PhaseTransitionController) GetPhaseStatus(c *gin.Context) {
 		RoomID:        roomID,
 		Phase:         timer.CurrentPhase,
 		RemainingTime: timer.RemainingTime,
-		UpdatedAt:     time.Now().UTC().Format(time.RFC3339),
+		UpdatedAt:     time.Now().UTC(),
 	})
 }
 

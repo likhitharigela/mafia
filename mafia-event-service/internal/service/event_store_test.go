@@ -1,46 +1,100 @@
 package service
 
 import (
+	"fmt"
 	"testing"
-	"github.com/example/mafia-event-service/internal/models"
+	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestEventStore(t *testing.T) {
-	store := GetEventStore()
-
-	// Clear existing state from global store if any
-	store.mu.Lock()
-	store.events = make(map[string][]models.EventFeedItem)
-	store.mu.Unlock()
-
-	roomID := "test-room"
-
-	// Initially empty
-	events := store.GetEvents(roomID)
-	if len(events) != 0 {
-		t.Errorf("Expected 0 events initially, got %d", len(events))
+	tests := []struct {
+		name   string
+		setup  func(*EventStore)
+		assert func(*testing.T, *EventStore)
+	}{
+		{
+			name: "adds event",
+			setup: func(es *EventStore) {
+				es.PushEvent("room1", "VOTE", "player1 voted")
+			},
+			assert: func(t *testing.T, es *EventStore) {
+				feed := es.GetEvents("room1")
+				assert.Len(t, feed, 1)
+				assert.Equal(t, "VOTE", feed[0].Event)
+				assert.Equal(t, "player1 voted", feed[0].Description)
+				assert.Equal(t, "room1", feed[0].RoomID)
+				assert.WithinDuration(t, time.Now().UTC(), feed[0].At, time.Second)
+			},
+		},
+		{
+			name: "empty room",
+			assert: func(t *testing.T, es *EventStore) {
+				feed := es.GetEvents("room1")
+				assert.NotNil(t, feed)
+				assert.Len(t, feed, 0)
+			},
+		},
+		{
+			name: "returns copy",
+			setup: func(es *EventStore) {
+				es.PushEvent("room1", "VOTE", "player1 voted")
+			},
+			assert: func(t *testing.T, es *EventStore) {
+				feed := es.GetEvents("room1")
+				feed[0].Event = "MUTATED"
+				original := es.GetEvents("room1")
+				assert.Equal(t, "VOTE", original[0].Event)
+			},
+		},
+		{
+			name: "cap at 50",
+			setup: func(es *EventStore) {
+				for i := 0; i < 55; i++ {
+					es.PushEvent("room1", "VOTE", "event")
+				}
+			},
+			assert: func(t *testing.T, es *EventStore) {
+				feed := es.GetEvents("room1")
+				assert.Len(t, feed, 50)
+			},
+		},
+		{
+			name: "keeps newest 50",
+			setup: func(es *EventStore) {
+				for i := 0; i < 55; i++ {
+					es.PushEvent("room1", "VOTE", fmt.Sprintf("event-%d", i))
+				}
+			},
+			assert: func(t *testing.T, es *EventStore) {
+				feed := es.GetEvents("room1")
+				assert.Equal(t, "event-5", feed[0].Description)
+				assert.Equal(t, "event-54", feed[len(feed)-1].Description)
+			},
+		},
+		{
+			name: "isolated by room",
+			setup: func(es *EventStore) {
+				es.PushEvent("room1", "VOTE", "room1 event")
+				es.PushEvent("room2", "CHAT", "room2 event")
+			},
+			assert: func(t *testing.T, es *EventStore) {
+				assert.Len(t, es.GetEvents("room1"), 1)
+				assert.Len(t, es.GetEvents("room2"), 1)
+				assert.Equal(t, "VOTE", es.GetEvents("room1")[0].Event)
+				assert.Equal(t, "CHAT", es.GetEvents("room2")[0].Event)
+			},
+		},
 	}
 
-	// Push some events
-	store.PushEvent(roomID, "GAME_START", "Game started")
-	store.PushEvent(roomID, "PLAYER_JOINED", "Alice joined")
-
-	events = store.GetEvents(roomID)
-	if len(events) != 2 {
-		t.Errorf("Expected 2 events, got %d", len(events))
-	}
-
-	if events[0].Event != "GAME_START" {
-		t.Errorf("Expected first event GAME_START, got %s", events[0].Event)
-	}
-
-	// Test max events boundary (50 limit)
-	for i := 0; i < 60; i++ {
-		store.PushEvent(roomID, "SPAM", "Spam event")
-	}
-
-	events = store.GetEvents(roomID)
-	if len(events) != 50 {
-		t.Errorf("Expected exactly 50 events after limit reached, got %d", len(events))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			es := NewEventStore()
+			if tt.setup != nil {
+				tt.setup(es)
+			}
+			tt.assert(t, es)
+		})
 	}
 }
