@@ -4,67 +4,112 @@ import com.mafia.entity.GameEvent;
 import com.mafia.entity.GameState;
 import com.mafia.repository.GameEventRepository;
 import com.mafia.repository.GameStateRepository;
-import com.mafia.repository.VoteRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class GameLoopServiceTest {
 
-    @Mock GameStateService gameStateService;
-    @Mock VoteCountingService voteCountingService;
-    @Mock GameStateRepository gameStateRepository;
-    @Mock GameEventRepository gameEventRepository;
-    @Mock VoteRepository voteRepository;
+    @Mock
+    GameStateRepository gameStateRepository;
+    @Mock
+    GameEventRepository gameEventRepository;
+    @Mock
+    NightPhaseService nightPhaseService;
+    @Mock
+    VoteCountingService voteCountingService;
 
-    @InjectMocks GameLoopService service;
+    @InjectMocks
+    GameLoopService service;
 
     @Test
-    void resolveVoting_eliminatesTargetIfFound() {
-        GameState gs = new GameState("room-1");
-        gs.setPhase("VOTING");
-        gs.setDayNumber(1);
+    void resolveVoting_eliminatesTargetAndAdvancesPhase_whenMajorityVote() {
+        GameState gs = votingState("room-1", 2);
+        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
+        when(voteCountingService.getEliminationTarget("room-1", 2)).thenReturn("targetA");
+
+        service.resolveVoting("room-1");
+
+        verify(voteCountingService).applyElimination("room-1", "targetA");
+
+        ArgumentCaptor<GameEvent> eventCaptor = ArgumentCaptor.forClass(GameEvent.class);
+        verify(gameEventRepository).save(eventCaptor.capture());
+        GameEvent saved = eventCaptor.getValue();
+        assertEquals("PLAYER_ELIMINATED", saved.getEventType());
+        assertTrue(saved.getDescription().contains("targetA"));
+
+        verify(nightPhaseService).advancePhase("room-1");
+    }
+
+    @Test
+    void resolveVoting_savesTieEventAndAdvancesPhase_whenNoMajority() {
+        GameState gs = votingState("room-1", 2);
+        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
+        when(voteCountingService.getEliminationTarget("room-1", 2)).thenReturn(null);
+
+        service.resolveVoting("room-1");
+
+        verify(voteCountingService, never()).applyElimination(any(), any());
+
+        ArgumentCaptor<GameEvent> eventCaptor = ArgumentCaptor.forClass(GameEvent.class);
+        verify(gameEventRepository).save(eventCaptor.capture());
+        GameEvent saved = eventCaptor.getValue();
+        assertEquals("VOTING_COMPLETE", saved.getEventType());
+        assertTrue(saved.getDescription().contains("tie"));
+
+        verify(nightPhaseService).advancePhase("room-1");
+    }
+
+    @Test
+    void resolveVoting_alwaysAdvancesPhase_regardlessOfElimination() {
+        GameState gs = votingState("room-1", 1);
         when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
         when(voteCountingService.getEliminationTarget("room-1", 1)).thenReturn("targetA");
 
         service.resolveVoting("room-1");
 
-        verify(voteCountingService).applyElimination("room-1", "targetA");
-        verify(gameEventRepository).save(argThat(e -> e.getEventType().equals("PLAYER_ELIMINATED")));
-        verify(gameStateService).advancePhase("room-1");
+        // advancePhase must be called even when elimination happens
+        verify(nightPhaseService).advancePhase("room-1");
     }
 
     @Test
-    void resolveVoting_handlesTieWithNoElimination() {
+    void resolveVoting_throwsIllegalArgumentException_whenGameNotFound() {
+        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.empty());
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.resolveVoting("room-1"));
+
+        assertEquals("Game not found", ex.getMessage());
+        verifyNoInteractions(voteCountingService, nightPhaseService, gameEventRepository);
+    }
+
+    @Test
+    void resolveVoting_throwsIllegalStateException_whenNotVotingPhase() {
         GameState gs = new GameState("room-1");
-        gs.setPhase("VOTING");
+        gs.setPhase("NIGHT");
         gs.setDayNumber(1);
         when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(voteCountingService.getEliminationTarget("room-1", 1)).thenReturn(null);
 
-        service.resolveVoting("room-1");
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> service.resolveVoting("room-1"));
 
-        verify(voteCountingService, never()).applyElimination(any(), any());
-        verify(gameEventRepository).save(argThat(e -> e.getEventType().equals("VOTING_COMPLETE")));
-        verify(gameStateService).advancePhase("room-1");
+        assertEquals("Not in VOTING phase", ex.getMessage());
+        verifyNoInteractions(voteCountingService, nightPhaseService, gameEventRepository);
     }
 
-    @Test
-    void resolveVoting_throwsIfWrongPhase() {
-        GameState gs = new GameState("room-1");
-        gs.setPhase("DAY_DISCUSSION");
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-
-        assertThrows(IllegalStateException.class, () -> service.resolveVoting("room-1"));
+    private static GameState votingState(String roomId, int dayNumber) {
+        GameState gs = new GameState(roomId);
+        gs.setPhase("VOTING");
+        gs.setDayNumber(dayNumber);
+        return gs;
     }
 }

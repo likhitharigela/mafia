@@ -6,20 +6,15 @@ import org.springframework.data.mongodb.core.mapping.Document;
 
 @Document(collection = "messages")
 public class Message {
-
     @Id
     private String id;
     private String roomId;
-    private String senderId;
     private String senderUsername;
     private String content;
     private LocalDateTime createdAt;
 
-    public Message() {}
-
-    public Message(String roomId, String senderId, String senderUsername, String content) {
+    public Message(String roomId, String senderUsername, String content) {
         this.roomId = roomId;
-        this.senderId = senderId;
         this.senderUsername = senderUsername;
         this.content = content;
         this.createdAt = LocalDateTime.now();
@@ -39,14 +34,6 @@ public class Message {
 
     public void setRoomId(String roomId) {
         this.roomId = roomId;
-    }
-
-    public String getSenderId() {
-        return senderId;
-    }
-
-    public void setSenderId(String senderId) {
-        this.senderId = senderId;
     }
 
     public String getSenderUsername() {

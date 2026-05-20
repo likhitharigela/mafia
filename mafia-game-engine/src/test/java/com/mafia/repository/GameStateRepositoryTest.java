@@ -33,4 +33,10 @@ class GameStateRepositoryTest {
         assertTrue(found.isPresent());
         assertEquals("NIGHT", found.get().getPhase());
     }
+
+    @Test
+    void findByRoomId_returnsEmptyForUnknownRoom() {
+        Optional<GameState> found = gameStateRepository.findByRoomId("unknown-room");
+        assertTrue(found.isEmpty());
+    }
 }

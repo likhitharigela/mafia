@@ -9,5 +9,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface PlayerRepository extends MongoRepository<Player, String> {
     Optional<Player> findByUsernameAndRoomId(String username, String roomId);
+
     List<Player> findByRoomId(String roomId);
 }

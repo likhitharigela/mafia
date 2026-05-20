@@ -5,8 +5,11 @@ import com.mafia.entity.Room;
 import com.mafia.repository.PlayerRepository;
 import com.mafia.repository.RoomRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -15,148 +18,327 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class RoomServiceTest {
 
-    @Mock RoomRepository roomRepository;
-    @Mock PlayerRepository playerRepository;
-    @Mock GameStateService gameStateService;
+    @Mock
+    private RoomRepository roomRepository;
 
-    @InjectMocks RoomService service;
+    @Mock
+    private PlayerRepository playerRepository;
 
-    @BeforeEach
-    void setup() {
-        lenient().when(roomRepository.save(any())).thenAnswer(i -> {
-            Room r = i.getArgument(0);
-            if (r.getId() == null) r.setId("room-1");
-            return r;
-        });
-        lenient().when(playerRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+    @Mock
+    private GameStateService gameStateService;
+
+    @InjectMocks
+    private RoomService roomService;
+
+    private Room activeRoom(String id, int maxPlayers, String... players) {
+        Room room = new Room("Test Room", "host", "ABC123", maxPlayers);
+        room.setId(id);
+        room.setStatus("ACTIVE");
+        List<String> ids = new ArrayList<>(List.of(players));
+        room.setPlayerIds(ids);
+        return room;
     }
 
-    @Test
-    void createRoom_createsRoomAndAddsHost() {
-        when(roomRepository.findByRoomCode(anyString())).thenReturn(Optional.empty());
+    @Nested
+    @DisplayName("createRoom()")
+    class CreateRoom {
 
-        Room r = service.createRoom("My Room", "host_user");
+        @Test
+        @DisplayName("saves room, host player, and initializes game state")
+        void createRoom_happyPath() {
+            when(roomRepository.findByRoomCode(anyString())).thenReturn(Optional.empty());
+            Room saved = activeRoom("room-1", 12, "alice");
+            when(roomRepository.save(any(Room.class))).thenReturn(saved);
 
-        assertNotNull(r);
-        assertEquals("My Room", r.getName());
-        assertEquals("host_user", r.getHostUsername());
-        assertEquals("ACTIVE", r.getStatus());
-        assertEquals(6, r.getRoomCode().length());
-        assertTrue(r.getPlayerIds().contains("host_user"));
+            Room result = roomService.createRoom("Test Room", "alice");
+            ArgumentCaptor<Room> roomCaptor = ArgumentCaptor.forClass(Room.class);
+            verify(roomRepository).save(roomCaptor.capture());
+            Room savedRoom = roomCaptor.getValue();
+            assertThat(savedRoom.getName()).isEqualTo("Test Room");
+            assertThat(savedRoom.getHostUsername()).isEqualTo("alice");
+            assertThat(savedRoom.getMaxPlayers()).isEqualTo(12);
 
-        verify(roomRepository).save(any(Room.class));
-        verify(playerRepository).save(argThat(p -> p.getUsername().equals("host_user")));
-        verify(gameStateService).initializeGameState("room-1");
+            ArgumentCaptor<Player> playerCaptor = ArgumentCaptor.forClass(Player.class);
+            verify(playerRepository).save(playerCaptor.capture());
+            assertThat(playerCaptor.getValue().getUsername()).isEqualTo("alice");
+            assertThat(playerCaptor.getValue().getRoomId()).isEqualTo("room-1");
+
+            assertThat(result).isSameAs(saved);
+            verify(gameStateService).initializeGameState("room-1");
+        }
+
+        @Test
+        @DisplayName("throws when all 20 code attempts are taken")
+        void createRoom_exhaustedCodeAttempts_throws() {
+            when(roomRepository.findByRoomCode(anyString()))
+                    .thenReturn(Optional.of(activeRoom("x", 12)));
+
+            assertThatThrownBy(() -> roomService.createRoom("Room", "alice"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Could not generate a unique room code");
+        }
+
+        @Test
+        @DisplayName("succeeds on second code attempt when first is taken")
+        void createRoom_secondAttemptSucceeds() {
+            Room existing = activeRoom("existing", 12);
+            Room saved = activeRoom("room-2", 12, "bob");
+
+            when(roomRepository.findByRoomCode(anyString()))
+                    .thenReturn(Optional.of(existing))
+                    .thenReturn(Optional.empty());
+            when(roomRepository.save(any(Room.class))).thenReturn(saved);
+
+            Room result = roomService.createRoom("Test Room", "bob");
+
+            assertThat(result).isSameAs(saved);
+            ArgumentCaptor<Room> roomCaptor = ArgumentCaptor.forClass(Room.class);
+            verify(roomRepository).save(roomCaptor.capture());
+            assertThat(roomCaptor.getValue().getHostUsername()).isEqualTo("bob");
+
+            // Verify the player saved belongs to the correct room
+            ArgumentCaptor<Player> playerCaptor = ArgumentCaptor.forClass(Player.class);
+            verify(playerRepository).save(playerCaptor.capture());
+            assertThat(playerCaptor.getValue().getUsername()).isEqualTo("bob");
+            assertThat(playerCaptor.getValue().getRoomId()).isEqualTo("room-2");
+        }
     }
 
-    @Test
-    void getRoomById_throwsIfNotFound() {
-        when(roomRepository.findById("invalid")).thenReturn(Optional.empty());
-        assertThrows(IllegalArgumentException.class, () -> service.getRoomById("invalid"));
+    @Nested
+    @DisplayName("getRoomById()")
+    class GetRoomById {
+
+        @Test
+        @DisplayName("returns room when found")
+        void getRoomById_found() {
+            Room room = activeRoom("room-1", 12);
+            when(roomRepository.findById("room-1")).thenReturn(Optional.of(room));
+
+            assertThat(roomService.getRoomById("room-1")).isSameAs(room);
+        }
+
+        @Test
+        @DisplayName("throws IllegalArgumentException when not found")
+        void getRoomById_notFound() {
+            when(roomRepository.findById("bad-id")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> roomService.getRoomById("bad-id"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("bad-id");
+        }
     }
 
-    @Test
-    void getRoomByCode_findsRoomAndIgnoresCase() {
-        Room r = new Room();
-        when(roomRepository.findByRoomCode("XYZ123")).thenReturn(Optional.of(r));
-        assertEquals(r, service.getRoomByCode("xyz123"));
+    @Nested
+    @DisplayName("getRoomByCode()")
+    class GetRoomByCode {
+
+        @Test
+        @DisplayName("uppercases the code before querying")
+        void getRoomByCode_uppercasesInput() {
+            Room room = activeRoom("room-1", 12);
+            when(roomRepository.findByRoomCode("ABC123")).thenReturn(Optional.of(room));
+
+            Room result = roomService.getRoomByCode("abc123");
+
+            assertThat(result).isSameAs(room);
+            verify(roomRepository).findByRoomCode("ABC123");
+        }
+
+        @Test
+        @DisplayName("throws when code not found")
+        void getRoomByCode_notFound() {
+            when(roomRepository.findByRoomCode("XXXXXX")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> roomService.getRoomByCode("xxxxxx"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("xxxxxx");
+        }
     }
 
-    @Test
-    void joinRoom_addsPlayerIfActiveAndNotFull() {
-        Room r = new Room("R", "host", "CODE", 2);
-        r.setId("room-1");
-        when(roomRepository.findById("room-1")).thenReturn(Optional.of(r));
-        when(playerRepository.findByUsernameAndRoomId("p2", "room-1")).thenReturn(Optional.empty());
+    @Nested
+    @DisplayName("joinRoomByCode()")
+    class JoinRoomByCode {
 
-        Room updated = service.joinRoom("room-1", "p2");
+        @Test
+        @DisplayName("delegates to addPlayerToRoom via getRoomByCode")
+        void joinRoomByCode_addsPlayer() {
+            Room room = activeRoom("room-1", 12, "alice");
+            when(roomRepository.findByRoomCode("ABC123")).thenReturn(Optional.of(room));
+            when(playerRepository.findByUsernameAndRoomId("bob", "room-1"))
+                    .thenReturn(Optional.empty());
+            when(roomRepository.save(room)).thenReturn(room);
 
-        assertTrue(updated.getPlayerIds().contains("host"));
-        assertTrue(updated.getPlayerIds().contains("p2"));
-        assertEquals(2, updated.getPlayerIds().size());
-        verify(playerRepository).save(any(Player.class));
+            Room result = roomService.joinRoomByCode("abc123", "bob");
+
+            assertThat(result).isSameAs(room);
+            verify(roomRepository).save(room);
+            ArgumentCaptor<Player> playerCaptor = ArgumentCaptor.forClass(Player.class);
+            verify(playerRepository).save(playerCaptor.capture());
+            assertThat(playerCaptor.getValue().getUsername()).isEqualTo("bob");
+            assertThat(playerCaptor.getValue().getRoomId()).isEqualTo("room-1");
+        }
     }
 
-    @Test
-    void joinRoom_throwsIfRoomNotActive() {
-        Room r = new Room("R", "host", "CODE", 2);
-        r.setId("room-1");
-        r.setStatus("CLOSED");
-        when(roomRepository.findById("room-1")).thenReturn(Optional.of(r));
+    @Nested
+    @DisplayName("leaveRoom()")
+    class LeaveRoom {
 
-        assertThrows(IllegalStateException.class, () -> service.joinRoom("room-1", "p2"));
+        @Test
+        @DisplayName("removes player and saves room — room stays ACTIVE")
+        void leaveRoom_playerRemoved_roomStaysActive() {
+            Room room = activeRoom("room-1", 12, "alice", "bob");
+            when(roomRepository.findById("room-1")).thenReturn(Optional.of(room));
+            Player player = new Player("bob", "room-1");
+            when(playerRepository.findByUsernameAndRoomId("bob", "room-1"))
+                    .thenReturn(Optional.of(player));
+
+            roomService.leaveRoom("room-1", "bob");
+
+            assertThat(room.getPlayerIds()).containsOnly("alice");
+            assertThat(room.getStatus()).isEqualTo("ACTIVE");
+            verify(playerRepository).delete(player);
+            verify(roomRepository).save(room);
+        }
+
+        @Test
+        @DisplayName("sets room status to CLOSED when last player leaves")
+        void leaveRoom_lastPlayerLeaves_roomClosed() {
+            Room room = activeRoom("room-1", 12, "alice");
+            when(roomRepository.findById("room-1")).thenReturn(Optional.of(room));
+            when(playerRepository.findByUsernameAndRoomId("alice", "room-1"))
+                    .thenReturn(Optional.empty()); // player doc already gone
+
+            roomService.leaveRoom("room-1", "alice");
+
+            assertThat(room.getPlayerIds()).isEmpty();
+            assertThat(room.getStatus()).isEqualTo("CLOSED");
+            verify(roomRepository).save(room);
+        }
+
+        @Test
+        @DisplayName("leaves room intact when username not in playerIds list")
+        void leaveRoom_usernameNotInList_noChange() {
+            Room room = activeRoom("room-1", 12, "alice");
+            when(roomRepository.findById("room-1")).thenReturn(Optional.of(room));
+            when(playerRepository.findByUsernameAndRoomId("ghost", "room-1"))
+                    .thenReturn(Optional.empty());
+
+            roomService.leaveRoom("room-1", "ghost");
+
+            // alice still present, room still active (one player remaining)
+            assertThat(room.getPlayerIds()).containsOnly("alice");
+            assertThat(room.getStatus()).isEqualTo("ACTIVE");
+        }
     }
 
-    @Test
-    void joinRoom_throwsIfRoomFull() {
-        Room r = new Room("R", "host", "CODE", 2);
-        r.setId("room-1");
-        r.setPlayerIds(new ArrayList<>(List.of("host", "p2"))); // 2/2 full
-        when(roomRepository.findById("room-1")).thenReturn(Optional.of(r));
+    @Nested
+    @DisplayName("getRoomPlayers()")
+    class GetRoomPlayers {
 
-        assertThrows(IllegalStateException.class, () -> service.joinRoom("room-1", "p3"));
+        @Test
+        @DisplayName("delegates to playerRepository.findByRoomId")
+        void getRoomPlayers_returnsList() {
+            List<Player> players = List.of(new Player("alice", "room-1"), new Player("bob", "room-1"));
+            when(playerRepository.findByRoomId("room-1")).thenReturn(players);
+
+            List<Player> result = roomService.getRoomPlayers("room-1");
+
+            assertThat(result).isEqualTo(players);
+        }
+
+        @Test
+        @DisplayName("returns empty list when no players")
+        void getRoomPlayers_empty() {
+            when(playerRepository.findByRoomId("room-1")).thenReturn(List.of());
+
+            assertThat(roomService.getRoomPlayers("room-1")).isEmpty();
+        }
     }
 
-    @Test
-    void joinRoom_isIdempotent() {
-        Room r = new Room("R", "host", "CODE", 2);
-        r.setId("room-1");
-        when(roomRepository.findById("room-1")).thenReturn(Optional.of(r));
+    @Nested
+    @DisplayName("addPlayerToRoom() — branch coverage")
+    class AddPlayerToRoom {
 
-        Room updated = service.joinRoom("room-1", "host"); // host is already in
+        @Test
+        @DisplayName("throws when room is not ACTIVE")
+        void addPlayer_roomNotActive_throws() {
+            Room room = activeRoom("room-1", 12);
+            room.setStatus("CLOSED");
+            when(roomRepository.findByRoomCode("ABC123")).thenReturn(Optional.of(room));
 
-        assertEquals(1, updated.getPlayerIds().size());
-        verify(playerRepository, never()).save(any(Player.class)); // don't re-save player
-    }
+            assertThatThrownBy(() -> roomService.joinRoomByCode("ABC123", "alice"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("Room is not active");
+        }
 
-    @Test
-    void leaveRoom_removesPlayerAndClosesIfEmpty() {
-        Room r = new Room("R", "host", "CODE", 2);
-        r.setId("room-1");
-        r.setPlayerIds(new ArrayList<>(List.of("host", "p2")));
-        when(roomRepository.findById("room-1")).thenReturn(Optional.of(r));
-        Player p2 = new Player("p2", "room-1");
-        when(playerRepository.findByUsernameAndRoomId("p2", "room-1")).thenReturn(Optional.of(p2));
+        @Test
+        @DisplayName("throws when room is full")
+        void addPlayer_roomFull_throws() {
+            Room room = activeRoom("room-1", 2, "alice", "bob"); // maxPlayers = 2, already full
+            when(roomRepository.findByRoomCode("ABC123")).thenReturn(Optional.of(room));
 
-        service.leaveRoom("room-1", "p2");
+            assertThatThrownBy(() -> roomService.joinRoomByCode("ABC123", "charlie"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("Room is full");
+        }
 
-        assertFalse(r.getPlayerIds().contains("p2"));
-        assertTrue(r.getPlayerIds().contains("host"));
-        assertEquals("ACTIVE", r.getStatus());
-        verify(playerRepository).delete(p2);
-        verify(roomRepository).save(r);
-    }
+        @Test
+        @DisplayName("returns existing room without saving if player already in playerIds")
+        void addPlayer_alreadyInRoom_returnsEarly() {
+            Room room = activeRoom("room-1", 12, "alice");
+            when(roomRepository.findByRoomCode("ABC123")).thenReturn(Optional.of(room));
 
-    @Test
-    void leaveRoom_closesRoomWhenLastPlayerLeaves() {
-        Room r = new Room("R", "host", "CODE", 2);
-        r.setId("room-1");
-        r.setPlayerIds(new ArrayList<>(List.of("host")));
-        when(roomRepository.findById("room-1")).thenReturn(Optional.of(r));
+            Room result = roomService.joinRoomByCode("ABC123", "alice");
 
-        service.leaveRoom("room-1", "host");
+            assertThat(result).isSameAs(room);
+            // Should NOT call save or create a new Player entity
+            verify(playerRepository, never()).save(any());
+            verify(roomRepository, never()).save(any());
+        }
 
-        assertTrue(r.getPlayerIds().isEmpty());
-        assertEquals("CLOSED", r.getStatus());
-        verify(roomRepository).save(r);
-    }
+        @Test
+        @DisplayName("skips Player save if player doc already exists in DB")
+        void addPlayer_playerDocAlreadyExists_skipsPlayerSave() {
+            Room room = activeRoom("room-1", 12); // alice NOT in playerIds
+            when(roomRepository.findByRoomCode("ABC123")).thenReturn(Optional.of(room));
+            when(playerRepository.findByUsernameAndRoomId("alice", "room-1"))
+                    .thenReturn(Optional.of(new Player("alice", "room-1")));
+            when(roomRepository.save(room)).thenReturn(room);
 
-    @Test
-    void joinRoomByCode_works() {
-        Room r = new Room("R", "host", "CODE", 2);
-        r.setId("room-1");
-        when(roomRepository.findByRoomCode("CODE")).thenReturn(Optional.of(r));
-        
-        service.joinRoomByCode("code", "p2");
-        
-        assertTrue(r.getPlayerIds().contains("p2"));
+            roomService.joinRoomByCode("ABC123", "alice");
+
+            verify(playerRepository, never()).save(any());
+            ArgumentCaptor<Room> roomCaptor = ArgumentCaptor.forClass(Room.class);
+            verify(roomRepository).save(roomCaptor.capture());
+            assertThat(roomCaptor.getValue().getPlayerIds()).contains("alice");
+        }
+
+        @Test
+        @DisplayName("saves new Player doc when player not in DB yet")
+        void addPlayer_newPlayerDoc_savesPlayer() {
+            Room room = activeRoom("room-1", 12);
+            when(roomRepository.findByRoomCode("ABC123")).thenReturn(Optional.of(room));
+            when(playerRepository.findByUsernameAndRoomId("alice", "room-1"))
+                    .thenReturn(Optional.empty());
+            when(roomRepository.save(room)).thenReturn(room);
+
+            roomService.joinRoomByCode("ABC123", "alice");
+
+            ArgumentCaptor<Player> playerCaptor = ArgumentCaptor.forClass(Player.class);
+            verify(playerRepository).save(playerCaptor.capture());
+            assertThat(playerCaptor.getValue().getUsername()).isEqualTo("alice");
+            assertThat(playerCaptor.getValue().getRoomId()).isEqualTo("room-1");
+
+            ArgumentCaptor<Room> roomCaptor = ArgumentCaptor.forClass(Room.class);
+            verify(roomRepository).save(roomCaptor.capture());
+            assertThat(roomCaptor.getValue().getPlayerIds()).contains("alice");
+        }
     }
 }

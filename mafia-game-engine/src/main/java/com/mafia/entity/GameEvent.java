@@ -16,7 +16,8 @@ public class GameEvent {
     private String description;
     private LocalDateTime createdAt;
 
-    public GameEvent() {}
+    public GameEvent() {
+    }
 
     public GameEvent(String roomId, String eventType, String description) {
         this.roomId = roomId;

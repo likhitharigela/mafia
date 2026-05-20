@@ -8,6 +8,7 @@ import com.mafia.service.RoomService;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -21,53 +22,70 @@ public class RoomController {
     }
 
     @PostMapping("/create")
-    public Map<String, Object> createRoom(@RequestBody CreateRoomRequest req) {
-        Room room = roomService.createRoom(req.roomName(), req.hostUsername());
-        return roomToMap(room);
+    public ResponseEntity<?> createRoom(@RequestBody CreateRoomRequest req) {
+        try {
+            return ResponseEntity.ok(roomToMap(roomService.createRoom(req.roomName(), req.hostUsername())));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("status", "error", "message", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("status", "error", "message", "Internal server error"));
+        }
     }
 
     @PostMapping("/join-by-code")
-    public Map<String, Object> joinByCode(@RequestBody JoinRoomByCodeRequest req) {
-        Room room = roomService.joinRoomByCode(req.roomCode(), req.username());
-        return roomToMap(room);
+    public ResponseEntity<?> joinByCode(@RequestBody JoinRoomByCodeRequest req) {
+        try {
+            return ResponseEntity.ok(roomToMap(roomService.joinRoomByCode(req.roomCode(), req.username())));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("status", "error", "message", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("status", "error", "message", "Internal server error"));
+        }
     }
 
     @GetMapping("/by-code/{code}")
-    public Map<String, Object> getByCode(@PathVariable String code) {
-        Room room = roomService.getRoomByCode(code);
-        return roomToMap(room);
+    public ResponseEntity<?> getByCode(@PathVariable String code) {
+        try {
+            return ResponseEntity.ok(roomToMap(roomService.getRoomByCode(code)));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(404)
+                    .body(Map.of("status", "error", "message", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("status", "error", "message", "Internal server error"));
+        }
     }
 
     @GetMapping("/{roomId}/players")
-    public List<Map<String, Object>> getPlayers(@PathVariable String roomId) {
-        return roomService.getRoomPlayers(roomId).stream()
-                .map(p -> Map.<String, Object>of(
-                        "name", p.getUsername(),
-                        "alive", "ALIVE".equals(p.getStatus()),
-                        "role", p.getRole() != null ? p.getRole() : ""))
-                .collect(Collectors.toList());
+    public ResponseEntity<?> getPlayers(@PathVariable String roomId) {
+        try {
+            return ResponseEntity.ok(playersToList(roomService.getRoomPlayers(roomId)));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(404)
+                    .body(Map.of("status", "error", "message", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("status", "error", "message", "Internal server error"));
+        }
     }
 
     @GetMapping("/by-code/{code}/players")
-    public List<Map<String, Object>> getPlayersByCode(@PathVariable String code) {
-        Room room = roomService.getRoomByCode(code);
-        return roomService.getRoomPlayers(room.getId()).stream()
-                .map(p -> Map.<String, Object>of(
-                        "name", p.getUsername(),
-                        "alive", "ALIVE".equals(p.getStatus()),
-                        "role", p.getRole() != null ? p.getRole() : ""))
-                .collect(Collectors.toList());
+    public ResponseEntity<?> getPlayersByCode(@PathVariable String code) {
+        try {
+            Room room = roomService.getRoomByCode(code);
+            return ResponseEntity.ok(playersToList(roomService.getRoomPlayers(room.getId())));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(404)
+                    .body(Map.of("status", "error", "message", e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("status", "error", "message", "Internal server error"));
+        }
     }
-
-    // @PostMapping("/{roomId}/start")
-    // public Map<String, String> startGame(@PathVariable String roomId) {
-    //     try {
-    //         roomService.getRoomById(roomId); // validate room exists
-    //         return Map.of("roomId", roomId, "status", "started");
-    //     } catch (Exception e) {
-    //         return Map.of("status", "error", "message", e.getMessage());
-    //     }
-    // }
 
     private Map<String, Object> roomToMap(Room room) {
         return Map.of(
@@ -77,7 +95,15 @@ public class RoomController {
                 "hostUsername", room.getHostUsername(),
                 "playerCount", room.getPlayerIds().size(),
                 "minPlayers", room.getMinPlayers(),
-                "status", room.getStatus()
-        );
+                "status", room.getStatus());
+    }
+
+    private List<Map<String, Object>> playersToList(List<Player> players) {
+        return players.stream()
+                .map(p -> Map.<String, Object>of(
+                        "name", p.getUsername(),
+                        "alive", "ALIVE".equals(p.getStatus()),
+                        "role", p.getRole() != null ? p.getRole() : ""))
+                .collect(Collectors.toList());
     }
 }

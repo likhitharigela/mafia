@@ -1,19 +1,24 @@
 package com.mafia.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.mafia.entity.Message;
-import com.mafia.repository.MessageRepository;
-import org.junit.jupiter.api.Test;
+import com.mafia.dto.request.MessageRequest;
+import com.mafia.service.MessageService;
+import org.junit.jupiter.api.Named;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultMatcher;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -26,74 +31,104 @@ class MessageControllerTest {
     private MockMvc mockMvc;
 
     @MockBean
-    private MessageRepository messageRepository;
+    private MessageService messageService;
 
     @Autowired
     private ObjectMapper objectMapper;
 
-    @Test
-    void postMessage_savesMessageAndReturnsSent() throws Exception {
-        Map<String, String> req = Map.of("senderUsername", "userA", "content", "hello there");
-
-        mockMvc.perform(post("/api/rooms/room-1/message")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("sent"))
-                .andExpect(jsonPath("$.sender").value("userA"));
-
-        verify(messageRepository).save(any(Message.class));
+    static Stream<Arguments> postMessageScenarios() {
+        return Stream.of(
+                Arguments.of(
+                        Named.of("success", (ServiceSetup) s -> when(s.postMessage("room-1", "userA", "hello there"))
+                                .thenReturn(Map.of("status", "sent", "sender", "userA"))),
+                        "hello there",
+                        200,
+                        jsonPath("$.status").value("sent"),
+                        jsonPath("$.sender").value("userA")),
+                Arguments.of(
+                        Named.of("empty message returns 400",
+                                (ServiceSetup) s -> doThrow(new IllegalArgumentException("Empty message"))
+                                        .when(s).postMessage("room-1", "userA", "   ")),
+                        "   ",
+                        400,
+                        jsonPath("$.status").value("error"),
+                        jsonPath("$.message").value("Empty message")),
+                Arguments.of(
+                        Named.of("illegal state returns 400",
+                                (ServiceSetup) s -> doThrow(new IllegalStateException("Room closed"))
+                                        .when(s).postMessage("room-1", "userA", "hello there")),
+                        "hello there",
+                        400,
+                        jsonPath("$.status").value("error"),
+                        jsonPath("$.message").value("Room closed")),
+                Arguments.of(
+                        Named.of("unexpected error returns 500",
+                                (ServiceSetup) s -> doThrow(new RuntimeException("db down"))
+                                        .when(s).postMessage("room-1", "userA", "hello there")),
+                        "hello there",
+                        500,
+                        jsonPath("$.status").value("error"),
+                        jsonPath("$.message").value("Internal server error")));
     }
 
-    @Test
-    void postMessage_returnsErrorIfEmpty() throws Exception {
-        Map<String, String> req = Map.of("senderUsername", "userA", "content", "   ");
+    @ParameterizedTest
+    @MethodSource("postMessageScenarios")
+    void postMessage(ServiceSetup setup, String content, int expectedStatus,
+            ResultMatcher bodyMatcher, ResultMatcher extraMatcher) throws Exception {
+        setup.configure(messageService);
 
-        mockMvc.perform(post("/api/rooms/room-1/message")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("error"))
-                .andExpect(jsonPath("$.message").value("Empty message"));
+        MessageRequest req = new MessageRequest("userA", content);
 
-        verify(messageRepository, never()).save(any());
+        mockMvc.perform(postJson("/api/rooms/room-1/message", req))
+                .andExpect(status().is(expectedStatus))
+                .andExpect(bodyMatcher)
+                .andExpect(extraMatcher);
+
+        verify(messageService).postMessage("room-1", "userA", content);
     }
 
-    @Test
-    void postMessage_trimsLongContentAndDefaultsSender() throws Exception {
-        String longContent = "x".repeat(350);
-        Map<String, String> req = Map.of("content", longContent);
-
-        mockMvc.perform(post("/api/rooms/room-1/message")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("sent"))
-                .andExpect(jsonPath("$.sender").value("Unknown"));
-
-        verify(messageRepository).save(argThat(message -> message.getContent().length() == 300));
+    static Stream<Arguments> getMessagesScenarios() {
+        return Stream.of(
+                Arguments.of(
+                        Named.of("success - returns messages", (ServiceSetup) s -> when(s.getMessages("room-1"))
+                                .thenReturn(List.of(
+                                        Map.of("sender", "userA", "message", "hello")))),
+                        200,
+                        jsonPath("$[0].sender").value("userA")),
+                Arguments.of(
+                        Named.of("room not found returns 404",
+                                (ServiceSetup) s -> doThrow(new IllegalArgumentException("Room not found"))
+                                        .when(s).getMessages("room-1")),
+                        404,
+                        jsonPath("$.message").value("Room not found")),
+                Arguments.of(
+                        Named.of("unexpected error returns 500",
+                                (ServiceSetup) s -> doThrow(new RuntimeException("db down"))
+                                        .when(s).getMessages("room-1")),
+                        500,
+                        jsonPath("$.message").value("Internal server error")));
     }
 
-    @Test
-    void getMessages_returnsMessageList() throws Exception {
-        Message msg = new Message("room-1", "userA", "userA", "hello");
-        when(messageRepository.findByRoomIdOrderByCreatedAtDesc("room-1")).thenReturn(List.of(msg));
+    @ParameterizedTest
+    @MethodSource("getMessagesScenarios")
+    void getMessages(ServiceSetup setup, int expectedStatus, ResultMatcher bodyMatcher) throws Exception {
+        setup.configure(messageService);
 
         mockMvc.perform(get("/api/rooms/room-1/messages"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].sender").value("userA"))
-                .andExpect(jsonPath("$[0].message").value("hello"));
+                .andExpect(status().is(expectedStatus))
+                .andExpect(bodyMatcher);
+
+        verify(messageService).getMessages("room-1");
     }
 
-    @Test
-    void getMessages_limitsToFifty() throws Exception {
-        List<Message> messages = java.util.stream.IntStream.range(0, 55)
-                .mapToObj(i -> new Message("room-1", "user" + i, "user" + i, "msg" + i))
-                .toList();
-        when(messageRepository.findByRoomIdOrderByCreatedAtDesc("room-1")).thenReturn(messages);
+    @FunctionalInterface
+    interface ServiceSetup {
+        void configure(MessageService s);
+    }
 
-        mockMvc.perform(get("/api/rooms/room-1/messages"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(50));
+    private MockHttpServletRequestBuilder postJson(String url, Object body) throws Exception {
+        return post(url)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(body));
     }
 }

@@ -1,80 +1,103 @@
 package com.mafia.controller;
 
+import com.mafia.dto.request.DoctorSaveSubmitRequest;
 import com.mafia.dto.request.NightActionSubmitRequest;
 import com.mafia.dto.request.PoliceGuessSubmitRequest;
-import com.mafia.dto.request.DoctorSaveSubmitRequest;
 import com.mafia.service.GameLoopService;
-import com.mafia.service.GameStateService;
+import com.mafia.service.NightPhaseService;
 import java.util.Map;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/game")
 public class GamePhaseController {
 
-    private final GameStateService gameStateService;
+    private final NightPhaseService nightPhaseService;
     private final GameLoopService gameLoopService;
 
-    public GamePhaseController(GameStateService gameStateService, GameLoopService gameLoopService) {
-        this.gameStateService = gameStateService;
+    public GamePhaseController(NightPhaseService nightPhaseService,
+            GameLoopService gameLoopService) {
+        this.nightPhaseService = nightPhaseService;
         this.gameLoopService = gameLoopService;
     }
 
-    /** Host advances the phase. Handles all business logic before transitioning. */
     @PostMapping("/{roomId}/advance-phase")
-    public Map<String, String> advancePhase(@PathVariable String roomId) {
+    public ResponseEntity<Map<String, String>> advancePhase(@PathVariable String roomId) {
         try {
-            gameStateService.advancePhase(roomId);
-            return Map.of("roomId", roomId, "status", "phase-advanced");
+            nightPhaseService.advancePhase(roomId);
+            return ResponseEntity.ok(Map.of("roomId", roomId, "status", "phase-advanced"));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("status", "error", "message", e.getMessage()));
         } catch (Exception e) {
-            return Map.of("status", "error", "message", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("status", "error", "message", "Internal server error"));
         }
     }
 
-    /** Mafia submits their night kill target during NIGHT phase. */
     @PostMapping("/{roomId}/submit-night-kill")
-    public Map<String, String> submitNightKill(@PathVariable String roomId,
-                                               @RequestBody NightActionSubmitRequest req) {
+    public ResponseEntity<Map<String, String>> submitNightKill(
+            @PathVariable String roomId,
+            @RequestBody NightActionSubmitRequest req) {
         try {
-            gameStateService.submitNightKill(roomId, req.targetPlayer());
-            return Map.of("roomId", roomId, "target", req.targetPlayer(), "status", "recorded");
+            nightPhaseService.submitNightKill(roomId, req.targetPlayer());
+            return ResponseEntity.ok(
+                    Map.of("roomId", roomId, "target", req.targetPlayer(), "status", "recorded"));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("status", "error", "message", e.getMessage()));
         } catch (Exception e) {
-            return Map.of("status", "error", "message", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("status", "error", "message", "Internal server error"));
         }
     }
 
-    /** Police submits their guess during POLICE_GUESS phase. */
     @PostMapping("/{roomId}/submit-police-guess")
-    public Map<String, String> submitPoliceGuess(@PathVariable String roomId,
-                                                 @RequestBody PoliceGuessSubmitRequest req) {
+    public ResponseEntity<Map<String, String>> submitPoliceGuess(
+            @PathVariable String roomId,
+            @RequestBody PoliceGuessSubmitRequest req) {
         try {
-            gameStateService.submitPoliceGuess(roomId, req.suspectPlayer());
-            return Map.of("roomId", roomId, "suspect", req.suspectPlayer(), "status", "recorded");
+            nightPhaseService.submitPoliceGuess(roomId, req.suspectPlayer());
+            return ResponseEntity.ok(
+                    Map.of("roomId", roomId, "suspect", req.suspectPlayer(), "status", "recorded"));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("status", "error", "message", e.getMessage()));
         } catch (Exception e) {
-            return Map.of("status", "error", "message", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("status", "error", "message", "Internal server error"));
         }
     }
 
-    /** Doctors submit their save during DOCTOR_SAVE phase. Multiple doctors may save independently. */
     @PostMapping("/{roomId}/submit-doctor-save")
-    public Map<String, String> submitDoctorSave(@PathVariable String roomId,
-                                                @RequestBody DoctorSaveSubmitRequest req) {
+    public ResponseEntity<Map<String, String>> submitDoctorSave(
+            @PathVariable String roomId,
+            @RequestBody DoctorSaveSubmitRequest req) {
         try {
-            gameStateService.submitDoctorSave(roomId, req.savedPlayer());
-            return Map.of("roomId", roomId, "saved", req.savedPlayer(), "status", "recorded");
+            nightPhaseService.submitDoctorSave(roomId, req.savedPlayer());
+            return ResponseEntity.ok(
+                    Map.of("roomId", roomId, "saved", req.savedPlayer(), "status", "recorded"));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("status", "error", "message", e.getMessage()));
         } catch (Exception e) {
-            return Map.of("status", "error", "message", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("status", "error", "message", "Internal server error"));
         }
     }
 
-    /** Host finalises voting — counts votes, eliminates, checks win condition. */
     @PostMapping("/{roomId}/resolve-voting")
-    public Map<String, String> resolveVoting(@PathVariable String roomId) {
+    public ResponseEntity<Map<String, String>> resolveVoting(@PathVariable String roomId) {
         try {
             gameLoopService.resolveVoting(roomId);
-            return Map.of("roomId", roomId, "status", "voting-resolved");
+            return ResponseEntity.ok(Map.of("roomId", roomId, "status", "voting-resolved"));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("status", "error", "message", e.getMessage()));
         } catch (Exception e) {
-            return Map.of("status", "error", "message", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("status", "error", "message", "Internal server error"));
         }
     }
 }

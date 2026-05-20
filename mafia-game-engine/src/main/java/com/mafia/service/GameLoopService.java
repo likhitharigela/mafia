@@ -2,43 +2,28 @@ package com.mafia.service;
 
 import com.mafia.entity.GameEvent;
 import com.mafia.entity.GameState;
-import com.mafia.entity.Vote;
 import com.mafia.repository.GameEventRepository;
 import com.mafia.repository.GameStateRepository;
-import com.mafia.repository.VoteRepository;
 import org.springframework.stereotype.Service;
 
-/**
- * Handles the VOTING→ELIMINATION branch of the game loop.
- * advancePhase() for VOTING calls applyVoteElimination here,
- * then GameStateService handles the resulting ELIMINATION phase.
- */
 @Service
 public class GameLoopService {
 
-    private final GameStateService gameStateService;
+    private final NightPhaseService nightPhaseService;
     private final VoteCountingService voteCountingService;
     private final GameStateRepository gameStateRepository;
     private final GameEventRepository gameEventRepository;
-    private final VoteRepository voteRepository;
 
-    public GameLoopService(GameStateService gameStateService,
-                           VoteCountingService voteCountingService,
-                           GameStateRepository gameStateRepository,
-                           GameEventRepository gameEventRepository,
-                           VoteRepository voteRepository) {
-        this.gameStateService = gameStateService;
+    public GameLoopService(NightPhaseService nightPhaseService,
+            VoteCountingService voteCountingService,
+            GameStateRepository gameStateRepository,
+            GameEventRepository gameEventRepository) {
+        this.nightPhaseService = nightPhaseService;
         this.voteCountingService = voteCountingService;
         this.gameStateRepository = gameStateRepository;
         this.gameEventRepository = gameEventRepository;
-        this.voteRepository = voteRepository;
     }
 
-    /**
-     * Resolves the current VOTING phase: counts votes, eliminates the top-voted player
-     * (or nobody on a tie), then advances to ELIMINATION check.
-     * Called by GamePhaseController when host finalises VOTING.
-     */
     public void resolveVoting(String roomId) {
         GameState gs = gameStateRepository.findByRoomId(roomId)
                 .orElseThrow(() -> new IllegalArgumentException("Game not found"));
@@ -57,7 +42,6 @@ public class GameLoopService {
                     "Voting ended in a tie — no one was eliminated"));
         }
 
-        // Advance to ELIMINATION check
-        gameStateService.advancePhase(roomId); // VOTING → ELIMINATION
+        nightPhaseService.advancePhase(roomId);
     }
 }

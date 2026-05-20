@@ -6,6 +6,7 @@ import com.mafia.entity.Vote;
 import com.mafia.repository.GameStateRepository;
 import com.mafia.repository.PlayerRepository;
 import com.mafia.repository.VoteRepository;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -18,8 +19,7 @@ public class VoteCountingService {
     private final PlayerRepository playerRepository;
     private final GameStateRepository gameStateRepository;
 
-    public VoteCountingService(
-            VoteRepository voteRepository,
+    public VoteCountingService(VoteRepository voteRepository,
             PlayerRepository playerRepository,
             GameStateRepository gameStateRepository) {
         this.voteRepository = voteRepository;
@@ -29,7 +29,6 @@ public class VoteCountingService {
 
     public Map<String, Integer> countVotes(String roomId, int dayNumber) {
         List<Vote> votes = voteRepository.findByRoomIdAndDayNumber(roomId, dayNumber);
-        
         return votes.stream()
                 .collect(Collectors.groupingBy(
                         Vote::getVotedFor,
@@ -40,26 +39,29 @@ public class VoteCountingService {
         Map<String, Integer> voteCounts = countVotes(roomId, dayNumber);
 
         if (voteCounts.isEmpty()) {
-            return null; // No votes
+            return null;
         }
+
         String target = voteCounts.entrySet().stream()
                 .max(Map.Entry.comparingByValue())
                 .map(Map.Entry::getKey)
                 .orElse(null);
+
         if (target != null) {
             int maxVotes = voteCounts.get(target);
             long tieCounts = voteCounts.values().stream()
                     .filter(count -> count == maxVotes)
                     .count();
-
             if (tieCounts > 1) {
                 return null;
             }
         }
+
         Player player = playerRepository.findByUsernameAndRoomId(target, roomId).orElse(null);
-        if (player == null || !player.getStatus().equals("ALIVE")) {
+        if (player == null || !"ALIVE".equals(player.getStatus())) {
             return null;
         }
+
         return target;
     }
 
@@ -74,21 +76,14 @@ public class VoteCountingService {
         player.setVoteEligibleDayNumber(null);
         playerRepository.save(player);
 
-        List<String> eliminated = new java.util.ArrayList<>(gameState.getEliminatedPlayers());
+        List<String> eliminated = new ArrayList<>(gameState.getEliminatedPlayers());
         eliminated.add(eliminatedPlayer);
         gameState.setEliminatedPlayers(eliminated);
 
-        List<String> alive = new java.util.ArrayList<>(gameState.getAlivePlayers());
+        List<String> alive = new ArrayList<>(gameState.getAlivePlayers());
         alive.remove(eliminatedPlayer);
         gameState.setAlivePlayers(alive);
 
         gameStateRepository.save(gameState);
-    }
-
-    public int getPlayerCountByRole(String roomId, String role) {
-        List<Player> players = playerRepository.findByRoomId(roomId);
-        return (int) players.stream()
-                .filter(p -> role.equals(p.getRole()) && "ALIVE".equals(p.getStatus()))
-                .count();
     }
 }

@@ -1,22 +1,21 @@
 package com.mafia.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.mafia.dto.request.ActionCommandRequest;
 import com.mafia.dto.request.VoteCommandRequest;
-import com.mafia.entity.GameState;
-import com.mafia.entity.Vote;
-import com.mafia.repository.GameStateRepository;
-import com.mafia.repository.VoteRepository;
-import org.junit.jupiter.api.Test;
+import com.mafia.service.GameCommandService;
+import org.junit.jupiter.api.Named;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultMatcher;
 
-import java.util.Optional;
+import java.util.stream.Stream;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -28,74 +27,56 @@ class GameCommandControllerTest {
     private MockMvc mockMvc;
 
     @MockBean
-    private GameStateRepository gameStateRepository;
-
-    @MockBean
-    private VoteRepository voteRepository;
+    private GameCommandService gameCommandService;
 
     @Autowired
     private ObjectMapper objectMapper;
 
-    @Test
-    void submitVote_recordsVote() throws Exception {
-        GameState gs = new GameState("room-1");
-        gs.setPhase("VOTING");
-        gs.setDayNumber(2);
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
+    static Stream<Arguments> submitVoteScenarios() {
+        return Stream.of(
+                Arguments.of(
+                        Named.of("success",
+                                (ServiceSetup) s -> doNothing().when(s).submitVote("room-1", "voterA", "targetB")),
+                        200,
+                        jsonPath("$.status").value("vote-recorded")),
+                Arguments.of(
+                        Named.of("game not found",
+                                (ServiceSetup) s -> doThrow(new IllegalArgumentException("Game not found"))
+                                        .when(s).submitVote("room-1", "voterA", "targetB")),
+                        400,
+                        jsonPath("$.message").value("Game not found")),
+                Arguments.of(
+                        Named.of("voting phase not active",
+                                (ServiceSetup) s -> doThrow(new IllegalStateException("Voting phase not active"))
+                                        .when(s).submitVote("room-1", "voterA", "targetB")),
+                        400,
+                        jsonPath("$.message").value("Voting phase not active")),
+                Arguments.of(
+                        Named.of("unexpected error returns 500",
+                                (ServiceSetup) s -> doThrow(new RuntimeException("db down"))
+                                        .when(s).submitVote("room-1", "voterA", "targetB")),
+                        500,
+                        jsonPath("$.message").value("Internal server error")));
+    }
+
+    @ParameterizedTest
+    @MethodSource("submitVoteScenarios")
+    void submitVote(ServiceSetup setup, int expectedStatus, ResultMatcher bodyMatcher) throws Exception {
+        setup.configure(gameCommandService);
 
         VoteCommandRequest req = new VoteCommandRequest("voterA", "targetB");
 
         mockMvc.perform(post("/api/rooms/room-1/vote")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("vote-recorded"));
+                .andExpect(status().is(expectedStatus))
+                .andExpect(bodyMatcher);
 
-        verify(voteRepository).save(any(Vote.class));
+        verify(gameCommandService).submitVote("room-1", "voterA", "targetB");
     }
 
-    @Test
-    void submitVote_failsIfNotVotingPhase() throws Exception {
-        GameState gs = new GameState("room-1");
-        gs.setPhase("DAY_DISCUSSION");
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-
-        VoteCommandRequest req = new VoteCommandRequest("voterA", "targetB");
-
-        mockMvc.perform(post("/api/rooms/room-1/vote")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("error"))
-                .andExpect(jsonPath("$.message").value("Voting phase not active"));
-
-        verify(voteRepository, never()).save(any());
-    }
-
-    @Test
-    void submitVote_returnsErrorIfGameMissing() throws Exception {
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.empty());
-
-        VoteCommandRequest req = new VoteCommandRequest("voterA", "targetB");
-
-        mockMvc.perform(post("/api/rooms/room-1/vote")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("error"))
-                .andExpect(jsonPath("$.message").value("Game not found"));
-
-        verify(voteRepository, never()).save(any());
-    }
-
-    @Test
-    void submitAction_returnsGenericOk() throws Exception {
-        ActionCommandRequest req = new ActionCommandRequest("player1", "guess", "targetA");
-
-        mockMvc.perform(post("/api/rooms/room-1/action")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(req)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("action-recorded"));
+    @FunctionalInterface
+    interface ServiceSetup {
+        void configure(GameCommandService service);
     }
 }

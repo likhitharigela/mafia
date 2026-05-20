@@ -11,13 +11,14 @@ public class Player {
     private String id;
     private String username;
     private String roomId;
-    private String role; // VILLAGER, MAFIA, POLICE
-    private String status; // ALIVE, ELIMINATED
+    private String role;
+    private String status;
     private Integer voteEligibleDayNumber;
     private boolean ready;
     private LocalDateTime joinedAt;
 
-    public Player() {}
+    public Player() {
+    }
 
     public Player(String username, String roomId) {
         this.username = username;

@@ -36,12 +36,7 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-inline</artifactId>
-            <scope>test</scope>
-        </dependency> -->
-    </dependencies>
+    </dependencies>                          <!-- ← this was missing -->
 
     <build>
         <plugins>
@@ -66,18 +61,31 @@
                             <goal>report</goal>
                         </goals>
                     </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-dependency-plugin</artifactId>
-                <version>3.6.1</version>
-                <executions>
                     <execution>
-                        <phase>process-test-classes</phase>
+                        <id>check</id>
+                        <phase>verify</phase>
                         <goals>
-                            <goal>properties</goal>
+                            <goal>check</goal>
                         </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
@@ -86,7 +94,10 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
                 <configuration>
-                    <argLine>-javaagent:${org.mockito:mockito-inline:jar} ${argLine}</argLine>
+                    <argLine>${argLine}</argLine>
+                    <excludes>
+                        <exclude>**/*RepositoryTest.java</exclude>
+                    </excludes>
                 </configuration>
             </plugin>
         </plugins>

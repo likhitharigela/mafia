@@ -35,4 +35,10 @@ class VoteRepositoryTest {
         assertTrue(votes.stream().allMatch(v -> v.getDayNumber() == 1));
         assertTrue(votes.stream().allMatch(v -> v.getRoomId().equals("room-1")));
     }
+
+    @Test
+    void findByRoomIdAndDayNumber_returnsEmptyForUnknownRoom() {
+        List<Vote> votes = voteRepository.findByRoomIdAndDayNumber("unknown-room", 1);
+        assertEquals(0, votes.size());
+    }
 }

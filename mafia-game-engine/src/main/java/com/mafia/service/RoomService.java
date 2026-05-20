@@ -6,6 +6,7 @@ import com.mafia.repository.PlayerRepository;
 import com.mafia.repository.RoomRepository;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
 
@@ -20,14 +21,14 @@ public class RoomService {
     private final PlayerRepository playerRepository;
     private final GameStateService gameStateService;
 
-    public RoomService(RoomRepository roomRepository, PlayerRepository playerRepository,
-                       GameStateService gameStateService) {
+    public RoomService(RoomRepository roomRepository,
+            PlayerRepository playerRepository,
+            GameStateService gameStateService) {
         this.roomRepository = roomRepository;
         this.playerRepository = playerRepository;
         this.gameStateService = gameStateService;
     }
 
-    /** Create a room and register the host as the first player. */
     public Room createRoom(String roomName, String hostUsername) {
         String code = generateUniqueCode();
         Room room = new Room(roomName, hostUsername, code, 12);
@@ -47,13 +48,25 @@ public class RoomService {
                 .orElseThrow(() -> new IllegalArgumentException("Room not found for code: " + roomCode));
     }
 
-    /** Join by the 6-char share code (what the UI uses). */
     public Room joinRoomByCode(String roomCode, String username) {
         return addPlayerToRoom(getRoomByCode(roomCode), username);
     }
 
-    public Room joinRoom(String roomId, String username) {
-        return addPlayerToRoom(getRoomById(roomId), username);
+    public void leaveRoom(String roomId, String username) {
+        Room room = getRoomById(roomId);
+        List<String> ids = new ArrayList<>(room.getPlayerIds());
+        ids.remove(username);
+        room.setPlayerIds(ids);
+        playerRepository.findByUsernameAndRoomId(username, roomId)
+                .ifPresent(playerRepository::delete);
+        if (ids.isEmpty())
+            room.setStatus("CLOSED");
+        room.setUpdatedAt(LocalDateTime.now());
+        roomRepository.save(room);
+    }
+
+    public List<Player> getRoomPlayers(String roomId) {
+        return playerRepository.findByRoomId(roomId);
     }
 
     private Room addPlayerToRoom(Room room, String username) {
@@ -63,32 +76,17 @@ public class RoomService {
         if (room.getPlayerIds().size() >= room.getMaxPlayers()) {
             throw new IllegalStateException("Room is full");
         }
-        // Idempotent — already in room
-        if (room.getPlayerIds().contains(username)) return room;
+        if (room.getPlayerIds().contains(username))
+            return room;
 
         if (playerRepository.findByUsernameAndRoomId(username, room.getId()).isEmpty()) {
             playerRepository.save(new Player(username, room.getId()));
         }
-        List<String> ids = new java.util.ArrayList<>(room.getPlayerIds());
+        List<String> ids = new ArrayList<>(room.getPlayerIds());
         ids.add(username);
         room.setPlayerIds(ids);
         room.setUpdatedAt(LocalDateTime.now());
         return roomRepository.save(room);
-    }
-
-    public void leaveRoom(String roomId, String username) {
-        Room room = getRoomById(roomId);
-        List<String> ids = new java.util.ArrayList<>(room.getPlayerIds());
-        ids.remove(username);
-        room.setPlayerIds(ids);
-        playerRepository.findByUsernameAndRoomId(username, roomId).ifPresent(playerRepository::delete);
-        if (ids.isEmpty()) room.setStatus("CLOSED");
-        room.setUpdatedAt(LocalDateTime.now());
-        roomRepository.save(room);
-    }
-
-    public List<Player> getRoomPlayers(String roomId) {
-        return playerRepository.findByRoomId(roomId);
     }
 
     private String generateUniqueCode() {
@@ -98,7 +96,8 @@ public class RoomService {
                 sb.append(CODE_CHARS.charAt(RNG.nextInt(CODE_CHARS.length())));
             }
             String code = sb.toString();
-            if (roomRepository.findByRoomCode(code).isEmpty()) return code;
+            if (roomRepository.findByRoomCode(code).isEmpty())
+                return code;
         }
         throw new IllegalStateException("Could not generate a unique room code");
     }

@@ -15,7 +15,8 @@ public class Vote {
     private String votedFor;
     private LocalDateTime createdAt;
 
-    public Vote() {}
+    public Vote() {
+    }
 
     public Vote(String roomId, int dayNumber, String voterId, String votedFor) {
         this.roomId = roomId;

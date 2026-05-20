@@ -7,30 +7,20 @@ import org.springframework.data.annotation.Version;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
-/**
- * Represents a game room.
- * roomCode is the short 6-char share code that players use to join.
- */
 @Document(collection = "rooms")
 public class Room {
 
     @Id
     private String id;
-
-    /** Human-readable name given by the host */
     private String name;
-
-    /** The username of the player who created the room (host) */
     private String hostUsername;
-
-    /** 6-char uppercase alphanumeric share code, e.g. "XK92PL" */
     @Indexed(unique = true)
     private String roomCode;
 
     private int maxPlayers;
     private int minPlayers;
     private List<String> playerIds;
-    private String status; // ACTIVE, CLOSED
+    private String status;
 
     @Version
     private Long version;
@@ -38,7 +28,8 @@ public class Room {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
-    public Room() {}
+    public Room() {
+    }
 
     public Room(String name, String hostUsername, String roomCode, int maxPlayers) {
         this.name = name;
@@ -52,38 +43,91 @@ public class Room {
         this.updatedAt = LocalDateTime.now();
     }
 
-    // ---- Getters & Setters ----
+    public String getId() {
+        return id;
+    }
 
-    public String getId() { return id; }
-    public void setId(String id) { this.id = id; }
+    public void setId(String id) {
+        this.id = id;
+    }
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
+    public String getName() {
+        return name;
+    }
 
-    public String getHostUsername() { return hostUsername; }
-    public void setHostUsername(String hostUsername) { this.hostUsername = hostUsername; }
+    public void setName(String name) {
+        this.name = name;
+    }
 
-    public String getRoomCode() { return roomCode; }
-    public void setRoomCode(String roomCode) { this.roomCode = roomCode; }
+    public String getHostUsername() {
+        return hostUsername;
+    }
 
-    public int getMaxPlayers() { return maxPlayers; }
-    public void setMaxPlayers(int maxPlayers) { this.maxPlayers = maxPlayers; }
+    public void setHostUsername(String hostUsername) {
+        this.hostUsername = hostUsername;
+    }
 
-    public int getMinPlayers() { return minPlayers; }
-    public void setMinPlayers(int minPlayers) { this.minPlayers = minPlayers; }
+    public String getRoomCode() {
+        return roomCode;
+    }
 
-    public List<String> getPlayerIds() { return playerIds; }
-    public void setPlayerIds(List<String> playerIds) { this.playerIds = playerIds; }
+    public void setRoomCode(String roomCode) {
+        this.roomCode = roomCode;
+    }
 
-    public String getStatus() { return status; }
-    public void setStatus(String status) { this.status = status; }
+    public int getMaxPlayers() {
+        return maxPlayers;
+    }
 
-    public Long getVersion() { return version; }
-    public void setVersion(Long version) { this.version = version; }
+    public void setMaxPlayers(int maxPlayers) {
+        this.maxPlayers = maxPlayers;
+    }
 
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public int getMinPlayers() {
+        return minPlayers;
+    }
 
-    public LocalDateTime getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+    public void setMinPlayers(int minPlayers) {
+        this.minPlayers = minPlayers;
+    }
+
+    public List<String> getPlayerIds() {
+        return playerIds;
+    }
+
+    public void setPlayerIds(List<String> playerIds) {
+        this.playerIds = playerIds;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
+    public Long getVersion() {
+        return version;
+    }
+
+    public void setVersion(Long version) {
+        this.version = version;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
 }

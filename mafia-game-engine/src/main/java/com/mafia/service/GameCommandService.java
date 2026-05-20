@@ -6,14 +6,8 @@ import com.mafia.entity.Vote;
 import com.mafia.repository.GameStateRepository;
 import com.mafia.repository.PlayerRepository;
 import com.mafia.repository.VoteRepository;
-import java.util.Map;
 import org.springframework.stereotype.Service;
 
-/**
- * Thin command service kept for the generic action endpoint.
- * Specific commands (start, night-kill, police-guess) are handled
- * by GameStateService and GameLoopService directly.
- */
 @Service
 public class GameCommandService {
 
@@ -22,38 +16,36 @@ public class GameCommandService {
     private final VoteRepository voteRepository;
 
     public GameCommandService(GameStateRepository gameStateRepository,
-                              PlayerRepository playerRepository,
-                              VoteRepository voteRepository) {
+            PlayerRepository playerRepository,
+            VoteRepository voteRepository) {
         this.gameStateRepository = gameStateRepository;
         this.playerRepository = playerRepository;
         this.voteRepository = voteRepository;
     }
 
-    public Map<String, String> submitVote(String roomId, String voterId, String votedFor) {
-        try {
-            GameState gs = gameStateRepository.findByRoomId(roomId)
-                    .orElseThrow(() -> new IllegalArgumentException("Game not found"));
-            if (!"VOTING".equals(gs.getPhase())) {
-                return Map.of("status", "error", "message", "Voting phase not active");
-            }
-            if (voteRepository.existsByRoomIdAndDayNumberAndVoterId(roomId, gs.getDayNumber(), voterId)) {
-                return Map.of("status", "error", "message", "Vote already submitted for this round");
-            }
+    public void submitVote(String roomId, String voterId, String votedFor) {
+        GameState gs = gameStateRepository.findByRoomId(roomId)
+                .orElseThrow(() -> new IllegalArgumentException("Game not found"));
 
-            Player voter = playerRepository.findByUsernameAndRoomId(voterId, roomId)
-                    .orElseThrow(() -> new IllegalArgumentException("Player not found: " + voterId));
-            boolean alive = "ALIVE".equals(voter.getStatus());
-            boolean ghostVoteAllowed = voter.getVoteEligibleDayNumber() != null
-                    && voter.getVoteEligibleDayNumber() == gs.getDayNumber();
-            if (!alive && !ghostVoteAllowed) {
-                return Map.of("status", "error", "message", "Dead players cannot vote now");
-            }
-
-            voteRepository.save(new Vote(roomId, gs.getDayNumber(), voterId, votedFor));
-            return Map.of("roomId", roomId, "voterId", voterId,
-                    "votedFor", votedFor, "status", "vote-recorded");
-        } catch (Exception e) {
-            return Map.of("status", "error", "message", e.getMessage());
+        if (!"VOTING".equals(gs.getPhase())) {
+            throw new IllegalStateException("Voting phase not active");
         }
+
+        if (voteRepository.existsByRoomIdAndDayNumberAndVoterId(roomId, gs.getDayNumber(), voterId)) {
+            throw new IllegalStateException("Vote already submitted for this round");
+        }
+
+        Player voter = playerRepository.findByUsernameAndRoomId(voterId, roomId)
+                .orElseThrow(() -> new IllegalArgumentException("Player not found: " + voterId));
+
+        boolean alive = "ALIVE".equals(voter.getStatus());
+        boolean ghostVoteAllowed = voter.getVoteEligibleDayNumber() != null
+                && voter.getVoteEligibleDayNumber() == gs.getDayNumber();
+
+        if (!alive && !ghostVoteAllowed) {
+            throw new IllegalStateException("Dead players cannot vote now");
+        }
+
+        voteRepository.save(new Vote(roomId, gs.getDayNumber(), voterId, votedFor));
     }
 }

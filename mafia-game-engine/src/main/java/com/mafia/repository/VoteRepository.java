@@ -8,5 +8,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface VoteRepository extends MongoRepository<Vote, String> {
     List<Vote> findByRoomIdAndDayNumber(String roomId, int dayNumber);
+
     boolean existsByRoomIdAndDayNumberAndVoterId(String roomId, int dayNumber, String voterId);
 }
