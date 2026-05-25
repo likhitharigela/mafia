@@ -3,9 +3,9 @@ WORKDIR /app
 COPY pom.xml .
 RUN mvn dependency:go-offline -B
 COPY src ./src
-RUN mvn package -DskipTests -B
+RUN mvn package -Dmaven.test.skip=true -B
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
-COPY --from=build /app/target/mafia-game-engine-0.1.0.jar .
-CMD ["java", "-jar", "mafia-game-engine-0.1.0.jar"]
+COPY --from=build /app/target/*.jar app.jar
+ENTRYPOINT ["java", "-jar", "app.jar"]

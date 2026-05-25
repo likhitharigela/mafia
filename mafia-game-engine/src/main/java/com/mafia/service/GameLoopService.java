@@ -10,44 +10,45 @@ import org.springframework.stereotype.Service;
 @Service
 public class GameLoopService {
 
-    private final NightPhaseService nightPhaseService;
+    private final PhaseTransitionService phaseTransitionService;
     private final VoteCountingService voteCountingService;
     private final GameStateRepository gameStateRepository;
     private final GameEventRepository gameEventRepository;
     private final EventServiceClient eventServiceClient;
 
-    public GameLoopService(NightPhaseService nightPhaseService,
-            VoteCountingService voteCountingService,
-            GameStateRepository gameStateRepository,
-            GameEventRepository gameEventRepository,
-            EventServiceClient eventServiceClient) {
-        this.nightPhaseService = nightPhaseService;
+    public GameLoopService(PhaseTransitionService phaseTransitionService,VoteCountingService voteCountingService,GameStateRepository gameStateRepository,
+    GameEventRepository gameEventRepository,EventServiceClient eventServiceClient) 
+    {
+        this.phaseTransitionService = phaseTransitionService;
         this.voteCountingService = voteCountingService;
         this.gameStateRepository = gameStateRepository;
         this.gameEventRepository = gameEventRepository;
         this.eventServiceClient = eventServiceClient;
     }
 
-    public void resolveVoting(String roomId) {
+    public void resolveVoting(String roomId) 
+    {
         GameState gs = gameStateRepository.findByRoomId(roomId)
                 .orElseThrow(() -> new IllegalArgumentException("Game not found"));
-
-        if (!"VOTING".equals(gs.getPhase())) {
-            throw new IllegalStateException("Not in VOTING phase");
-        }
+        if (!"VOTING".equals(gs.getPhase())) throw new IllegalStateException("Not in VOTING phase");
 
         String target = voteCountingService.getEliminationTarget(roomId, gs.getDayNumber());
-        if (target != null) {
+        if (target != null) 
+        {
             voteCountingService.applyElimination(roomId, target);
-            String elimMsg = target + " was eliminated by village vote";
-            gameEventRepository.save(new GameEvent(roomId, "PLAYER_ELIMINATED", elimMsg));
-            eventServiceClient.pushEvent(roomId, "PLAYER_ELIMINATED", elimMsg);
-        } else {
-            String tieMsg = "Voting ended in a tie — no one was eliminated";
-            gameEventRepository.save(new GameEvent(roomId, "VOTING_COMPLETE", tieMsg));
-            eventServiceClient.pushEvent(roomId, "VOTING_COMPLETE", tieMsg);
+            pushEvent(roomId, "PLAYER_ELIMINATED", target + " was eliminated by village vote");
+        } 
+        else 
+        {
+            pushEvent(roomId, "VOTING_COMPLETE", "Voting ended in a tie — no one was eliminated");
         }
 
-        nightPhaseService.advancePhase(roomId);
+        phaseTransitionService.advancePhase(roomId);
+    }
+
+    private void pushEvent(String roomId, String type, String message)
+    {
+        gameEventRepository.save(new GameEvent(roomId, type, message));
+        eventServiceClient.pushEvent(roomId, type, message);
     }
 }
