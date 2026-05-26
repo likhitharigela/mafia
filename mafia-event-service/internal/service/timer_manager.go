@@ -1,8 +1,6 @@
 package service
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -32,27 +30,23 @@ func NewTimerManager() *TimerManager {
 }
 
 func engineAdvancePhase(roomID string) {
-	engineURL := os.Getenv("SPRING_ENGINE_BASE_URL")
+    engineURL := os.Getenv("SPRING_ENGINE_BASE_URL")
+    if engineURL == "" {
+        log.Printf("[TimerManager] SPRING_ENGINE_BASE_URL not set; skipping auto-advance for room=%s", roomID)
+        return
+    }
 
-	if engineURL == "" {
-		log.Printf("[TimerManager] SPRING_ENGINE_BASE_URL not set; skipping auto-advance for room=%s", roomID)
-		return
-	}
-
-	url := fmt.Sprintf("%s/advance-phase", engineURL)
-	body, _ := json.Marshal(map[string]string{
-	"room_id": roomID,
-	})
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		log.Printf("[TimerManager] auto-advance HTTP error room=%s: %v", roomID, err)
-		return
-	}
-
-	defer resp.Body.Close()
-
-	log.Printf("[TimerManager] auto-advance room=%s status=%d", roomID, resp.StatusCode)
+    url := fmt.Sprintf("%s/api/game/%s/advance-phase", engineURL, roomID)
+    
+    resp, err := http.Post(url, "application/json", nil)  // no body needed
+    if err != nil {
+        log.Printf("[TimerManager] auto-advance HTTP error room=%s: %v", roomID, err)
+        return
+    }
+    defer resp.Body.Close()
+    log.Printf("[TimerManager] auto-advance room=%s status=%d", roomID, resp.StatusCode)
 }
+
 
 func (tm *TimerManager) StartTimer(roomID string, phase string, durationSec int) {
 	tm.mu.Lock()
