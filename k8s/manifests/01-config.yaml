@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mafia-secrets
+  namespace: mafia
+type: Opaque
+stringData:
+  MONGO_INITDB_ROOT_USERNAME: "admin"
+  MONGO_INITDB_ROOT_PASSWORD: "password123"
+  JWT_SECRET: "your-jwt-secret-here"
+  JWT_ALGORITHM: "HS256"
+  JWT_EXPIRES_MINUTES: "480"
+  INTERNAL_SERVICE_TOKEN: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJpbnRlcm5hbC1zZXJ2aWNlIn0.EvBeKXn6EbRJQM2DGtV_meDE7Minxwq7EfyDUC2Lc1c"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mafia-config
+  namespace: mafia
+data:
+  SPRING_PROFILES_ACTIVE: "dev"
+  SPRING_DATA_MONGODB_URI: "mongodb://admin:password123@mongodb:27017/mafia?authSource=admin"
+  MONGO_DATABASE: "mafia"
+  GIN_EVENT_BASE_URL: "http://mafia-event-service:8081/api"
+  SPRING_ENGINE_BASE_URL: "http://mafia-game-engine:8080"
+  GATEWAY_HOST: "0.0.0.0"
+  GATEWAY_PORT: "8000"
+  EVENT_SERVICE_PORT: "8081"
+  GATEWAY_BASE_URL: "http://mafia-gateway-service:8000"
+  TEMPORAL_HOST: "temporal:7233"
+  VITE_GATEWAY_BASE_URL: "http://localhost:8000"

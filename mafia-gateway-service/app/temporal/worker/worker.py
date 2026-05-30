@@ -7,8 +7,13 @@ import os
 from temporalio.client import Client
 from temporalio.worker import Worker
 
+from app.temporal.activities.game_activities import (
+    advance_phase_activity,
+    cleanup_room_activity,
+    start_game_activity,
+    start_phase_timer_activity,
+)
 from app.temporal.workflows.game_lifecycle import GameLifecycleWorkflow
-from app.temporal.activities.game_activities import (start_game_activity,start_phase_timer_activity,advance_phase_activity,cleanup_room_activity,)
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +27,16 @@ async def create_temporal_client() -> Client:
 
 
 async def run_worker(client: Client) -> None:
-    worker = Worker(client,task_queue=TASK_QUEUE,
+    worker = Worker(
+        client,
+        task_queue=TASK_QUEUE,
         workflows=[GameLifecycleWorkflow],
-        activities=[start_game_activity,start_phase_timer_activity,advance_phase_activity,cleanup_room_activity,],
+        activities=[
+            start_game_activity,
+            start_phase_timer_activity,
+            advance_phase_activity,
+            cleanup_room_activity,
+        ],
     )
     logger.info("Temporal worker starting on task_queue=%s", TASK_QUEUE)
     async with worker:

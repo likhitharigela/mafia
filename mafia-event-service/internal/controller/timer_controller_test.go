@@ -11,27 +11,27 @@ import (
 
 func setupTimerRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	tm := service.NewTimerManager()
-	es := service.GetEventStore()
+	tm := service.NewTimerManager(&MockTemporalClient{})
+	es := service.NewEventStore()
 	r := gin.New()
 	controller := NewTimerController(tm, es)
 	controller.RegisterTimerRoutes(r)
 	return r
 }
 
-func TestHealthWhenHealthEndpointisCalled(t *testing.T) {
+func TestHealthWhenHealthEndpointIsCalled(t *testing.T) {
 	r := setupTimerRouter()
 	w := getRequest(r, "/api/health")
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestGetTimerSnapshotWhenCalledWtihValidRoomID(t *testing.T) {
+func TestGetTimerSnapshotWhenCalledWithValidRoomID(t *testing.T) {
 	r := setupTimerRouter()
 	w := getRequest(r, "/api/timer/room1")
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestGetEventFeedWhenCalledWtihValidRoomID(t *testing.T) {
+func TestGetEventFeedWhenCalledWithValidRoomID(t *testing.T) {
 	r := setupTimerRouter()
 	w := getRequest(r, "/api/events/room1")
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -47,6 +47,11 @@ func TestPushEvent(t *testing.T) {
 			name:           "TestShouldPushEventSuccessfullyWithValidInput",
 			body:           []byte(`{"type":"VOTE","description":"Bob voted Alice"}`),
 			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "TestShouldReturnBadRequestWhenTypeIsMissing",
+			body:           []byte(`{"description":"Bob voted Alice"}`),
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
 			name:           "TestShouldReturnBadRequestWithMalformedJSON",

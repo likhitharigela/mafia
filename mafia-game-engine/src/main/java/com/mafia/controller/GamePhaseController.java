@@ -1,14 +1,20 @@
 package com.mafia.controller;
 
+import java.util.Map;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.mafia.dto.request.DoctorSaveSubmitRequest;
 import com.mafia.dto.request.NightActionSubmitRequest;
 import com.mafia.dto.request.PoliceGuessSubmitRequest;
 import com.mafia.service.GameLoopService;
 import com.mafia.service.NightPhaseService;
 import com.mafia.service.PhaseTransitionService;
-import java.util.Map;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/game")

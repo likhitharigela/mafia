@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 
-const WS_BASE = (import.meta.env.VITE_GATEWAY_BASE_URL || "http://localhost:8000")
-  .replace(/^http/, "ws");
+const WS_BASE = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host;
 
 /**
  * Opens a WebSocket to ws://<gateway>/ws/<roomId>?token=<jwt>

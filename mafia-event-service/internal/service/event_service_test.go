@@ -1,9 +1,10 @@
 package service
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestBuildTimerSnapshotFromManager(t *testing.T) {
@@ -33,7 +34,7 @@ func TestBuildTimerSnapshotFromManager(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tm := NewTimerManager()
+			tm := NewTimerManager(&mockTemporalClient{})
 			if tt.setupTimer {
 				tm.StartTimer("room1", tt.phase, 30)
 			}
@@ -45,10 +46,11 @@ func TestBuildTimerSnapshotFromManager(t *testing.T) {
 			} else {
 				assert.Equal(t, tt.expectedRemaining, snap.RemainingTime)
 			}
-			assert.WithinDuration(t, time.Now().UTC(), snap.UpdatedAt, time.Second)//future la edhadhu irukka nu check panrathu
+			assert.WithinDuration(t, time.Now().UTC(), snap.UpdatedAt, time.Second)
 		})
 	}
 }
+
 func TestBuildEventFeed(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -76,7 +78,7 @@ func TestBuildEventFeed(t *testing.T) {
 				es.PushEvent("room1", "VOTE", "Yaaro vote pannirukanga")
 			}
 			feed := BuildEventFeed("room1", es)
-			assert.NotNil(t, feed) //Empty but not nil
+			assert.NotNil(t, feed)
 			assert.Len(t, feed, tt.expectedCount)
 			if tt.expectedCount > 0 {
 				assert.Equal(t, tt.expectedType, feed[0].Event)

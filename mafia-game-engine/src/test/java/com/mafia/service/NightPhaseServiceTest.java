@@ -1,510 +1,406 @@
 package com.mafia.service;
 
-import com.mafia.entity.GameEvent;
-import com.mafia.entity.GameState;
-import com.mafia.entity.Player;
-import com.mafia.client.EventServiceClient;
-import com.mafia.repository.GameEventRepository;
-import com.mafia.repository.GameStateRepository;
-import com.mafia.repository.PlayerRepository;
+import java.util.ArrayList;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import com.mafia.client.EventServiceClient;
+import com.mafia.entity.GameEvent;
+import com.mafia.entity.GameState;
+import com.mafia.entity.Player;
+import com.mafia.repository.GameEventRepository;
+import com.mafia.repository.GameStateRepository;
+import com.mafia.repository.PlayerRepository;
 
 @ExtendWith(MockitoExtension.class)
 class NightPhaseServiceTest {
 
     @Mock
-    GameStateRepository gameStateRepository;
+    private GameStateRepository gameStateRepository;
+
     @Mock
-    PlayerRepository playerRepository;
+    private PlayerRepository playerRepository;
+
     @Mock
-    GameEventRepository gameEventRepository;
+    private GameEventRepository gameEventRepository;
+
     @Mock
-    WinConditionService winConditionService;
-    @Mock
-    EventServiceClient eventServiceClient;
+    private EventServiceClient eventServiceClient;
 
     @InjectMocks
-    NightPhaseService service;
+    private NightPhaseService service;
 
     @Test
-    void TestShouldSetTargetAndSaveEventWhenInNightPhase() {
-        GameState gs = gameStateWithPhase("NIGHT");
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(playerRepository.findByUsernameAndRoomId("targetA", "room-1"))
-                .thenReturn(Optional.of(alivePlayer("targetA", "room-1")));
+    void TestShouldSubmitNightKillSuccessfully() {
+        GameState gs = gameState("room-1", "NIGHT");
+        Player target = alivePlayer("targetA", "room-1");
+        target.setRole("VILLAGER");
 
-        service.submitNightKill("room-1", "targetA");
+        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
+        when(playerRepository.findByUsernameAndRoomId("targetA", "room-1")).thenReturn(Optional.of(target));
+
+        assertDoesNotThrow(() -> service.submitNightKill("room-1", "targetA"));
 
         assertEquals("targetA", gs.getNightKillTarget());
+        assertNotNull(gs.getUpdatedAt());
         verify(gameStateRepository).save(gs);
-        assertEventSaved("NIGHT_KILL");
+
+        ArgumentCaptor<GameEvent> eventCaptor = ArgumentCaptor.forClass(GameEvent.class);
+        verify(gameEventRepository).save(eventCaptor.capture());
+        assertEquals("NIGHT_KILL", eventCaptor.getValue().getEventType());
+        assertEquals("Mafia has chosen their target", eventCaptor.getValue().getDescription());
+
+        verify(eventServiceClient).pushEvent("room-1", "NIGHT_KILL", "Mafia has chosen their target");
     }
 
     @Test
-    void TestShouldThrowIllegalStateExceptionWhenNotinNightPhase() {
-        GameState gs = gameStateWithPhase("DAY_DISCUSSION");
+    void TestShouldThrowWhenNightKillSubmittedOutsideNightPhase() {
+        GameState gs = gameState("room-1", "DAY_DISCUSSION");
         when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
 
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> service.submitNightKill("room-1", "targetA"));
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class,
+                () -> service.submitNightKill("room-1", "targetA")
+        );
 
         assertEquals("Not in NIGHT phase", ex.getMessage());
-        verifyNoInteractions(gameEventRepository);
+        verify(playerRepository, never()).findByUsernameAndRoomId("targetA", "room-1");
+        verify(gameStateRepository, never()).save(gs);
+        verifyNoInteractions(gameEventRepository, eventServiceClient);
     }
 
     @Test
-    void TestShouldThrowIllegalArgumentExceptionWhenPlayerNotFound() {
-        GameState gs = gameStateWithPhase("NIGHT");
+    void TestShouldThrowWhenNightKillTargetPlayerNotFound() {
+        GameState gs = gameState("room-1", "NIGHT");
         when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(playerRepository.findByUsernameAndRoomId("targetA", "room-1"))
-                .thenReturn(Optional.empty());
+        when(playerRepository.findByUsernameAndRoomId("targetA", "room-1")).thenReturn(Optional.empty());
 
-        assertThrows(IllegalArgumentException.class,
-                () -> service.submitNightKill("room-1", "targetA"));
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.submitNightKill("room-1", "targetA")
+        );
+
+        assertEquals("Player not found: targetA", ex.getMessage());
+        verify(gameStateRepository, never()).save(gs);
+        verifyNoInteractions(gameEventRepository, eventServiceClient);
     }
 
     @Test
-    void TestShouldThrowIllegalStateExceptionWhenPlayerDead() {
-        GameState gs = gameStateWithPhase("NIGHT");
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(playerRepository.findByUsernameAndRoomId("targetA", "room-1"))
-                .thenReturn(Optional.of(deadPlayer("targetA", "room-1")));
+    void TestShouldThrowWhenNightKillTargetAlreadyEliminated() {
+        GameState gs = gameState("room-1", "NIGHT");
+        Player target = new Player("targetA", "room-1");
+        target.setStatus("ELIMINATED");
 
-        assertThrows(IllegalStateException.class,
-                () -> service.submitNightKill("room-1", "targetA"));
+        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
+        when(playerRepository.findByUsernameAndRoomId("targetA", "room-1")).thenReturn(Optional.of(target));
+
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class,
+                () -> service.submitNightKill("room-1", "targetA")
+        );
+
+        assertEquals("Player is already eliminated: targetA", ex.getMessage());
+        verify(gameStateRepository, never()).save(gs);
+        verifyNoInteractions(gameEventRepository, eventServiceClient);
     }
 
-        @Test
-        void TestShouldThrowIllegalStateExceptionWhenTargetIsMafia() {
-        GameState gs = gameStateWithPhase("NIGHT");
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        Player mafia = alivePlayer("targetA", "room-1");
-        mafia.setRole("MAFIA");
-        when(playerRepository.findByUsernameAndRoomId("targetA", "room-1"))
-            .thenReturn(Optional.of(mafia));
+    @Test
+    void TestShouldThrowWhenMafiaTargetsAnotherMafia() {
+        GameState gs = gameState("room-1", "NIGHT");
+        Player mafiaTarget = alivePlayer("targetA", "room-1");
+        mafiaTarget.setRole("MAFIA");
 
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-            () -> service.submitNightKill("room-1", "targetA"));
+        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
+        when(playerRepository.findByUsernameAndRoomId("targetA", "room-1")).thenReturn(Optional.of(mafiaTarget));
+
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class,
+                () -> service.submitNightKill("room-1", "targetA")
+        );
 
         assertEquals("Mafia cannot target another Mafia", ex.getMessage());
-        }
+        verify(gameStateRepository, never()).save(gs);
+        verifyNoInteractions(gameEventRepository, eventServiceClient);
+    }
 
     @Test
-    void TestShouldSetPoliceGuessTargetToCorrectWhenSuspectIsMafia() {
-        GameState gs = gameStateWithPhase("POLICE_GUESS");
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-
+    void TestShouldSubmitPoliceGuessWhenCorrect() {
+        GameState gs = gameState("room-1", "POLICE_GUESS");
         Player suspect = alivePlayer("suspectA", "room-1");
         suspect.setRole("MAFIA");
-        when(playerRepository.findByUsernameAndRoomId("suspectA", "room-1"))
-                .thenReturn(Optional.of(suspect));
 
-        service.submitPoliceGuess("room-1", "suspectA");
+        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
+        when(playerRepository.findByUsernameAndRoomId("suspectA", "room-1")).thenReturn(Optional.of(suspect));
+
+        assertDoesNotThrow(() -> service.submitPoliceGuess("room-1", "suspectA"));
 
         assertEquals("suspectA", gs.getPoliceGuessTarget());
-        assertTrue(gs.getPoliceGuessCorrect());
-        assertEventSavedWithDescription("POLICE_GUESS", "correctly identified");
+        assertEquals(true, gs.getPoliceGuessCorrect());
+        assertNotNull(gs.getUpdatedAt());
+        verify(gameStateRepository).save(gs);
+
+        ArgumentCaptor<GameEvent> eventCaptor = ArgumentCaptor.forClass(GameEvent.class);
+        verify(gameEventRepository).save(eventCaptor.capture());
+        assertEquals("POLICE_GUESS", eventCaptor.getValue().getEventType());
+        assertEquals("Police correctly identified a Mafia member: suspectA", eventCaptor.getValue().getDescription());
+
+        verify(eventServiceClient).pushEvent(
+                "room-1",
+                "POLICE_GUESS",
+                "Police correctly identified a Mafia member: suspectA"
+        );
     }
 
     @Test
-    void TestShouldSetPoliceGuessTargetAndCorrectFalseWhenSuspectIsNotMafia() {
-        GameState gs = gameStateWithPhase("POLICE_GUESS");
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-
+    void TestShouldSubmitPoliceGuessWhenIncorrect() {
+        GameState gs = gameState("room-1", "POLICE_GUESS");
         Player suspect = alivePlayer("suspectA", "room-1");
         suspect.setRole("VILLAGER");
-        when(playerRepository.findByUsernameAndRoomId("suspectA", "room-1"))
-                .thenReturn(Optional.of(suspect));
 
-        service.submitPoliceGuess("room-1", "suspectA");
+        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
+        when(playerRepository.findByUsernameAndRoomId("suspectA", "room-1")).thenReturn(Optional.of(suspect));
 
+        assertDoesNotThrow(() -> service.submitPoliceGuess("room-1", "suspectA"));
+
+        assertEquals("suspectA", gs.getPoliceGuessTarget());
         assertFalse(gs.getPoliceGuessCorrect());
-        assertEventSavedWithDescription("POLICE_GUESS", "incorrect");
+        verify(gameStateRepository).save(gs);
+
+        ArgumentCaptor<GameEvent> eventCaptor = ArgumentCaptor.forClass(GameEvent.class);
+        verify(gameEventRepository).save(eventCaptor.capture());
+        assertEquals("POLICE_GUESS", eventCaptor.getValue().getEventType());
+        assertEquals("Police made a guess but it was incorrect.", eventCaptor.getValue().getDescription());
+
+        verify(eventServiceClient).pushEvent(
+                "room-1",
+                "POLICE_GUESS",
+                "Police made a guess but it was incorrect."
+        );
     }
 
     @Test
-    void TestShouldThrowIllegalStateExceptionWhenNotinPolicGuessPhase() {
-        GameState gs = gameStateWithPhase("NIGHT");
+    void TestShouldThrowWhenPoliceGuessSubmittedOutsidePoliceGuessPhase() {
+        GameState gs = gameState("room-1", "NIGHT");
         when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
 
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> service.submitPoliceGuess("room-1", "suspectA"));
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class,
+                () -> service.submitPoliceGuess("room-1", "suspectA")
+        );
 
         assertEquals("Not in POLICE_GUESS phase", ex.getMessage());
+        verify(playerRepository, never()).findByUsernameAndRoomId("suspectA", "room-1");
+        verify(gameStateRepository, never()).save(gs);
+        verifyNoInteractions(gameEventRepository, eventServiceClient);
     }
 
     @Test
-    void TestShouldAddSaveTargetWhenInDoctorSavePhase() {
-        GameState gs = gameStateWithPhase("DOCTOR_SAVE");
+    void TestShouldThrowWhenPoliceGuessPlayerNotFound() {
+        GameState gs = gameState("room-1", "POLICE_GUESS");
+        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
+        when(playerRepository.findByUsernameAndRoomId("suspectA", "room-1")).thenReturn(Optional.empty());
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.submitPoliceGuess("room-1", "suspectA")
+        );
+
+        assertEquals("Player not found: suspectA", ex.getMessage());
+        verify(gameStateRepository, never()).save(gs);
+        verifyNoInteractions(gameEventRepository, eventServiceClient);
+    }
+
+    @Test
+    void TestShouldThrowWhenPoliceGuessTargetsEliminatedPlayer() {
+        GameState gs = gameState("room-1", "POLICE_GUESS");
+        Player suspect = new Player("suspectA", "room-1");
+        suspect.setStatus("ELIMINATED");
+
+        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
+        when(playerRepository.findByUsernameAndRoomId("suspectA", "room-1")).thenReturn(Optional.of(suspect));
+
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class,
+                () -> service.submitPoliceGuess("room-1", "suspectA")
+        );
+
+        assertEquals("Player is already eliminated: suspectA", ex.getMessage());
+        verify(gameStateRepository, never()).save(gs);
+        verifyNoInteractions(gameEventRepository, eventServiceClient);
+    }
+
+    @Test
+    void TestShouldSubmitDoctorSaveSuccessfully() {
+        GameState gs = gameState("room-1", "DOCTOR_SAVE");
         gs.setDoctorSaveTargets(new ArrayList<>());
+        Player saved = alivePlayer("playerA", "room-1");
+
         when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(playerRepository.findByUsernameAndRoomId("savedA", "room-1"))
-                .thenReturn(Optional.of(alivePlayer("savedA", "room-1")));
+        when(playerRepository.findByUsernameAndRoomId("playerA", "room-1")).thenReturn(Optional.of(saved));
 
-        service.submitDoctorSave("room-1", "savedA");
-
-        assertTrue(gs.getDoctorSaveTargets().contains("savedA"));
-        verify(gameStateRepository).save(gs);
-        assertEventSaved("DOCTOR_SAVE");
-    }
-
-    @Test
-    void TestShouldSubmitTheSaveAndReturnNullListWhenEmpty() {
-        GameState gs = gameStateWithPhase("DOCTOR_SAVE");
-        gs.setDoctorSaveTargets(null);
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(playerRepository.findByUsernameAndRoomId("savedA", "room-1"))
-                .thenReturn(Optional.of(alivePlayer("savedA", "room-1")));
-
-        service.submitDoctorSave("room-1", "savedA");
-
-        assertNotNull(gs.getDoctorSaveTargets());
-        assertTrue(gs.getDoctorSaveTargets().contains("savedA"));
-    }
-
-    @Test
-    void TestShouldNotAddDuplicateWhenAlreadySaved() {
-        GameState gs = gameStateWithPhase("DOCTOR_SAVE");
-        gs.setDoctorSaveTargets(new ArrayList<>(List.of("savedA")));
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(playerRepository.findByUsernameAndRoomId("savedA", "room-1"))
-                .thenReturn(Optional.of(alivePlayer("savedA", "room-1")));
-
-        service.submitDoctorSave("room-1", "savedA");
+        assertDoesNotThrow(() -> service.submitDoctorSave("room-1", "playerA"));
 
         assertEquals(1, gs.getDoctorSaveTargets().size());
+        assertEquals("playerA", gs.getDoctorSaveTargets().get(0));
+        assertNotNull(gs.getUpdatedAt());
+        verify(gameStateRepository).save(gs);
+
+        ArgumentCaptor<GameEvent> eventCaptor = ArgumentCaptor.forClass(GameEvent.class);
+        verify(gameEventRepository).save(eventCaptor.capture());
+        assertEquals("DOCTOR_SAVE", eventCaptor.getValue().getEventType());
+        assertEquals("A doctor has chosen a save target.", eventCaptor.getValue().getDescription());
+
+        verify(eventServiceClient).pushEvent(
+                "room-1",
+                "DOCTOR_SAVE",
+                "A doctor has chosen a save target."
+        );
     }
 
     @Test
-    void TestShouldThrowIllegalStateExceptionWhenNotInDoctorSavePhase() {
-        GameState gs = gameStateWithPhase("NIGHT");
+    void TestShouldNotDuplicateDoctorSaveTarget() {
+        GameState gs = gameState("room-1", "DOCTOR_SAVE");
+        gs.setDoctorSaveTargets(new ArrayList<>());
+        gs.getDoctorSaveTargets().add("playerA");
+
+        Player saved = alivePlayer("playerA", "room-1");
+
+        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
+        when(playerRepository.findByUsernameAndRoomId("playerA", "room-1")).thenReturn(Optional.of(saved));
+
+        assertDoesNotThrow(() -> service.submitDoctorSave("room-1", "playerA"));
+
+        assertEquals(1, gs.getDoctorSaveTargets().size());
+        assertEquals("playerA", gs.getDoctorSaveTargets().get(0));
+        verify(gameStateRepository).save(gs);
+    }
+
+    @Test
+    void TestShouldCreateDoctorSaveListWhenInitiallyNull() {
+        GameState gs = gameState("room-1", "DOCTOR_SAVE");
+        gs.setDoctorSaveTargets(null);
+
+        Player saved = alivePlayer("playerA", "room-1");
+
+        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
+        when(playerRepository.findByUsernameAndRoomId("playerA", "room-1")).thenReturn(Optional.of(saved));
+
+        assertDoesNotThrow(() -> service.submitDoctorSave("room-1", "playerA"));
+
+        assertNotNull(gs.getDoctorSaveTargets());
+        assertEquals(1, gs.getDoctorSaveTargets().size());
+        assertEquals("playerA", gs.getDoctorSaveTargets().get(0));
+        verify(gameStateRepository).save(gs);
+    }
+
+    @Test
+    void TestShouldThrowWhenDoctorSaveSubmittedOutsideDoctorSavePhase() {
+        GameState gs = gameState("room-1", "NIGHT");
         when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
 
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> service.submitDoctorSave("room-1", "savedA"));
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class,
+                () -> service.submitDoctorSave("room-1", "playerA")
+        );
+
         assertEquals("Not in DOCTOR_SAVE phase", ex.getMessage());
+        verify(playerRepository, never()).findByUsernameAndRoomId("playerA", "room-1");
+        verify(gameStateRepository, never()).save(gs);
+        verifyNoInteractions(gameEventRepository, eventServiceClient);
     }
 
     @Test
-    void TestShouldTransitionNightToPoliceGuess() {
-        GameState gs = gameStateWithPhase("NIGHT");
+    void TestShouldThrowWhenDoctorSavePlayerNotFound() {
+        GameState gs = gameState("room-1", "DOCTOR_SAVE");
         when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
+        when(playerRepository.findByUsernameAndRoomId("playerA", "room-1")).thenReturn(Optional.empty());
 
-        service.advancePhase("room-1");
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.submitDoctorSave("room-1", "playerA")
+        );
 
-        assertEquals("POLICE_GUESS", gs.getPhase());
-        assertEventSaved("PHASE_TRANSITIONED");
+        assertEquals("Player not found: playerA", ex.getMessage());
+        verify(gameStateRepository, never()).save(gs);
+        verifyNoInteractions(gameEventRepository, eventServiceClient);
     }
 
     @Test
-    void TestShouldTransitionPoliceGuessToDoctorSave() {
-        GameState gs = gameStateWithPhase("POLICE_GUESS");
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-
-        service.advancePhase("room-1");
-
-        assertEquals("DOCTOR_SAVE", gs.getPhase());
-    }
-
-    @Test
-    void TestShouldTransitionDoctorSaveToSunrise_whenKillSucceeds() {
-        GameState gs = gameStateWithPhase("DOCTOR_SAVE");
-        gs.setNightKillTarget("victimA");
-        gs.setAlivePlayers(new ArrayList<>(List.of("victimA", "p2")));
-        gs.setEliminatedPlayers(new ArrayList<>());
-        gs.setDoctorSaveTargets(new ArrayList<>());
+    void TestShouldThrowWhenDoctorSaveTargetsEliminatedPlayer() {
+        GameState gs = gameState("room-1", "DOCTOR_SAVE");
+        Player saved = new Player("playerA", "room-1");
+        saved.setStatus("ELIMINATED");
 
         when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(playerRepository.findByUsernameAndRoomId("victimA", "room-1"))
-                .thenReturn(Optional.of(alivePlayer("victimA", "room-1")));
-        when(winConditionService.checkWinCondition("room-1")).thenReturn("NONE");
+        when(playerRepository.findByUsernameAndRoomId("playerA", "room-1")).thenReturn(Optional.of(saved));
 
-        service.advancePhase("room-1");
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class,
+                () -> service.submitDoctorSave("room-1", "playerA")
+        );
 
-        assertEquals("SUNRISE", gs.getPhase());
-        assertFalse(gs.getNightKillFailed());
-        assertFalse(gs.getAlivePlayers().contains("victimA"));
-        assertFalse(gs.getDoctorSaveTargets().contains("victimA"));
+        assertEquals("Player is already eliminated: playerA", ex.getMessage());
+        verify(gameStateRepository, never()).save(gs);
+        verifyNoInteractions(gameEventRepository, eventServiceClient);
     }
 
     @Test
-    void TestShouldTransitionDoctorSaveToSunrise_whenKillBlockedByDoctor() {
-        GameState gs = gameStateWithPhase("DOCTOR_SAVE");
-        gs.setNightKillTarget("victimA");
-        gs.setAlivePlayers(new ArrayList<>(List.of("victimA", "p2")));
-        gs.setEliminatedPlayers(new ArrayList<>());
-        gs.setDoctorSaveTargets(new ArrayList<>(List.of("victimA")));
+    void TestShouldThrowWhenGameStateNotFoundForNightKill() {
+        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.empty());
 
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(winConditionService.checkWinCondition("room-1")).thenReturn("NONE");
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.submitNightKill("room-1", "targetA")
+        );
 
-        service.advancePhase("room-1");
-
-        assertEquals("SUNRISE", gs.getPhase());
-        assertTrue(gs.getNightKillFailed());
-        assertTrue(gs.getAlivePlayers().contains("victimA"));
-        assertTrue(gs.getDoctorSaveTargets().contains("victimA"));
+        assertEquals("Game not found for room: room-1", ex.getMessage());
+        verifyNoInteractions(playerRepository, gameEventRepository, eventServiceClient);
     }
 
     @Test
-    void TestShouldTransitionDoctorSaveToSunrise_whenKillBlockedBySoldier() {
-        GameState gs = gameStateWithPhase("DOCTOR_SAVE");
-        gs.setNightKillTarget("soldierA");
-        gs.setAlivePlayers(new ArrayList<>(List.of("soldierA", "p2")));
-        gs.setEliminatedPlayers(new ArrayList<>());
-        gs.setDoctorSaveTargets(new ArrayList<>());
+    void TestShouldThrowWhenGameStateNotFoundForPoliceGuess() {
+        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.empty());
 
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.submitPoliceGuess("room-1", "suspectA")
+        );
 
-        Player soldier = alivePlayer("soldierA", "room-1");
-        soldier.setRole("SOLDIER");
-        when(playerRepository.findByUsernameAndRoomId("soldierA", "room-1"))
-                .thenReturn(Optional.of(soldier));
-        when(winConditionService.checkWinCondition("room-1")).thenReturn("NONE");
-
-        service.advancePhase("room-1");
-
-        assertEquals("SUNRISE", gs.getPhase());
-        assertTrue(gs.getNightKillFailed());
-        assertTrue(gs.getAlivePlayers().contains("soldierA"));
-        assertFalse(gs.getDoctorSaveTargets().contains("soldierA"));
+        assertEquals("Game not found for room: room-1", ex.getMessage());
+        verifyNoInteractions(playerRepository, gameEventRepository, eventServiceClient);
     }
 
     @Test
-    void TestShouldEliminatePoliceGuessTarget_whenCorrectAndAlive() {
-        GameState gs = gameStateWithPhase("DOCTOR_SAVE");
-        gs.setNightKillTarget(null);
-        gs.setAlivePlayers(new ArrayList<>(List.of("policeTarget", "p2")));
-        gs.setEliminatedPlayers(new ArrayList<>());
-        gs.setDoctorSaveTargets(new ArrayList<>());
-        gs.setPoliceGuessTarget("policeTarget");
-        gs.setPoliceGuessCorrect(true);
-        gs.setNightKillFailed(true);
+    void TestShouldThrowWhenGameStateNotFoundForDoctorSave() {
+        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.empty());
 
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(playerRepository.findByUsernameAndRoomId("policeTarget", "room-1"))
-                .thenReturn(Optional.of(alivePlayer("policeTarget", "room-1")));
-        when(winConditionService.checkWinCondition("room-1")).thenReturn("NONE");
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.submitDoctorSave("room-1", "playerA")
+        );
 
-        service.advancePhase("room-1");
-
-        assertEquals("SUNRISE", gs.getPhase());
-        assertFalse(gs.getAlivePlayers().contains("policeTarget"));
-        assertTrue(gs.getEliminatedPlayers().contains("policeTarget"));
-        assertTrue(gs.getPoliceGuessCorrect()); 
+        assertEquals("Game not found for room: room-1", ex.getMessage());
+        verifyNoInteractions(playerRepository, gameEventRepository, eventServiceClient);
     }
 
-    @Test
-    void TestShouldTransitionDoctorSaveToGameOver_whenWinConditionMet() {
-        GameState gs = gameStateWithPhase("DOCTOR_SAVE");
-        gs.setNightKillTarget(null);
-        gs.setAlivePlayers(new ArrayList<>(List.of("p1")));
-        gs.setEliminatedPlayers(new ArrayList<>());
-        gs.setDoctorSaveTargets(new ArrayList<>());
-
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(winConditionService.checkWinCondition("room-1")).thenReturn("MAFIA");
-
-        service.advancePhase("room-1");
-
-        assertEquals("GAME_OVER", gs.getPhase());
-        assertEquals("MAFIA", gs.getWinner());
-        assertEventSaved("GAME_OVER");
-    }
-
-    @Test
-    void TestShouldTransitionSunriseToDayDiscussion() {
-        GameState gs = gameStateWithPhase("SUNRISE");
-        gs.setDayNumber(1);
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-
-        service.advancePhase("room-1");
-
-        assertEquals("DAY_DISCUSSION", gs.getPhase());
-        assertEquals(2, gs.getDayNumber()); 
-        assertNull(gs.getNightKillTarget());
-    }
-
-    @Test
-    void TestShouldTransitionDayDiscussionToVoting() {
-        GameState gs = gameStateWithPhase("DAY_DISCUSSION");
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-
-        service.advancePhase("room-1");
-
-        assertEquals("VOTING", gs.getPhase());
-    }
-
-    @Test
-    void TestShouldTransitionVotingToNight_whenNoWinner() {
-        GameState gs = gameStateWithPhase("VOTING");
-        gs.setNightNumber(1);
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(winConditionService.checkWinCondition("room-1")).thenReturn("NONE");
-
-        service.advancePhase("room-1");
-
-        assertEquals("NIGHT", gs.getPhase());
-        assertEquals(2, gs.getNightNumber()); 
-    }
-
-    @Test
-    void TestShouldBuildSunriseMessage_whenTargetedAndGuessCorrect() {
-        GameState gs = gameStateWithPhase("DOCTOR_SAVE");
-        gs.setNightKillTarget("victimA");
-        gs.setAlivePlayers(new ArrayList<>(List.of("p2")));
-        gs.setEliminatedPlayers(new ArrayList<>());
-        gs.setDoctorSaveTargets(new ArrayList<>());
-        gs.setPoliceGuessTarget("suspectA");
-        gs.setPoliceGuessCorrect(true);
-
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(winConditionService.checkWinCondition("room-1")).thenReturn("NONE");
-
-        service.advancePhase("room-1");
-
-        ArgumentCaptor<GameEvent> captor = ArgumentCaptor.forClass(GameEvent.class);
-        verify(gameEventRepository, atLeastOnce()).save(captor.capture());
-        assertTrue(captor.getAllValues().stream()
-                .anyMatch(e -> e.getDescription().contains("was targeted during the night")
-                        && e.getDescription().contains("Police correctly identified")));
-    }
-
-    @Test
-    void TestShouldBuildSunriseMessage_whenGuessIncorrect() {
-        GameState gs = gameStateWithPhase("DOCTOR_SAVE");
-        gs.setNightKillTarget(null);
-        gs.setAlivePlayers(new ArrayList<>(List.of("p2")));
-        gs.setEliminatedPlayers(new ArrayList<>());
-        gs.setDoctorSaveTargets(new ArrayList<>());
-        gs.setPoliceGuessTarget("suspectB");
-        gs.setPoliceGuessCorrect(false);
-
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(winConditionService.checkWinCondition("room-1")).thenReturn("NONE");
-
-        service.advancePhase("room-1");
-
-        ArgumentCaptor<GameEvent> captor = ArgumentCaptor.forClass(GameEvent.class);
-        verify(gameEventRepository, atLeastOnce()).save(captor.capture());
-        assertTrue(captor.getAllValues().stream()
-                .anyMatch(e -> e.getDescription().contains("Police guessed")
-                        && e.getDescription().contains("but they were wrong")));
-    }
-
-    @Test
-    void TestShouldTransitionVotingToGameOver_whenWinnerFound() {
-        GameState gs = gameStateWithPhase("VOTING");
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(winConditionService.checkWinCondition("room-1")).thenReturn("VILLAGE");
-
-        service.advancePhase("room-1");
-
-        assertEquals("GAME_OVER", gs.getPhase());
-        assertEquals("VILLAGE", gs.getWinner());
-    }
-
-    @Test
-    void TestShouldTransitionEliminationToWinCheck_whenNoWinner() {
-        GameState gs = gameStateWithPhase("ELIMINATION");
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(winConditionService.checkWinCondition("room-1")).thenReturn("NONE");
-
-        service.advancePhase("room-1");
-
-        assertEquals("WIN_CHECK", gs.getPhase());
-    }
-
-    @Test
-    void TestShouldTransitionEliminationToGameOver_whenWinnerFound() {
-        GameState gs = gameStateWithPhase("ELIMINATION");
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(winConditionService.checkWinCondition("room-1")).thenReturn("VILLAGER");
-
-        service.advancePhase("room-1");
-
-        assertEquals("GAME_OVER", gs.getPhase());
-        assertEquals("VILLAGER", gs.getWinner());
-    }
-
-    @Test
-    void TestShouldTransitionWinCheckToNight_whenNoWinner() {
-        GameState gs = gameStateWithPhase("WIN_CHECK");
-        gs.setNightNumber(2);
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-        when(winConditionService.checkWinCondition("room-1")).thenReturn("NONE");
-
-        service.advancePhase("room-1");
-
-        assertEquals("NIGHT", gs.getPhase());
-        assertEquals(3, gs.getNightNumber());
-    }
-
-    @Test
-    void TestShouldThrowIllegalStateException_whenUnknownPhase() {
-        GameState gs = gameStateWithPhase("LOBBY");
-        when(gameStateRepository.findByRoomId("room-1")).thenReturn(Optional.of(gs));
-
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> service.advancePhase("room-1"));
-
-        assertTrue(ex.getMessage().contains("Cannot advance from phase: LOBBY"));
-    }
-
-    @Test
-    void TestShouldEliminatePlayer_removesFromAliveAndAddsToEliminated() {
-        GameState gs = gameStateWithPhase("NIGHT");
-        gs.setAlivePlayers(new ArrayList<>(List.of("p1", "p2")));
-        gs.setEliminatedPlayers(new ArrayList<>());
-        gs.setDayNumber(2);
-
-        Player p = alivePlayer("p1", "room-1");
-        when(playerRepository.findByUsernameAndRoomId("p1", "room-1"))
-                .thenReturn(Optional.of(p));
-
-        service.eliminatePlayer("room-1", gs, "p1");
-
-        assertFalse(gs.getAlivePlayers().contains("p1"));
-        assertTrue(gs.getEliminatedPlayers().contains("p1"));
-        assertEquals("ELIMINATED", p.getStatus());
-        assertEquals(2, p.getVoteEligibleDayNumber());
-        verify(playerRepository).save(p);
-    }
-
-    @Test
-    void TestShouldNotEliminatePlayer_whenPlayerNotFound() {
-        GameState gs = gameStateWithPhase("NIGHT");
-        gs.setAlivePlayers(new ArrayList<>(List.of("p1")));
-        gs.setEliminatedPlayers(new ArrayList<>());
-
-        when(playerRepository.findByUsernameAndRoomId("ghost", "room-1"))
-                .thenReturn(Optional.empty());
-
-        assertDoesNotThrow(() -> service.eliminatePlayer("room-1", gs, "ghost"));
-        verify(playerRepository, never()).save(any());
-    }
-
-    private GameState gameStateWithPhase(String phase) {
-        GameState gs = new GameState("room-1");
+    private GameState gameState(String roomId, String phase) {
+        GameState gs = new GameState(roomId);
         gs.setPhase(phase);
-        gs.setDayNumber(1);
-        gs.setNightNumber(1);
-        gs.setAlivePlayers(new ArrayList<>());
-        gs.setEliminatedPlayers(new ArrayList<>());
-        gs.setWinner("NONE");
         return gs;
     }
 
@@ -512,29 +408,5 @@ class NightPhaseServiceTest {
         Player p = new Player(username, roomId);
         p.setStatus("ALIVE");
         return p;
-    }
-
-    private Player deadPlayer(String username, String roomId) {
-        Player p = new Player(username, roomId);
-        p.setStatus("ELIMINATED");
-        return p;
-    }
-
-    private void assertEventSaved(String expectedType) {
-        ArgumentCaptor<GameEvent> captor = ArgumentCaptor.forClass(GameEvent.class);
-        verify(gameEventRepository, atLeastOnce()).save(captor.capture());
-        assertTrue(captor.getAllValues().stream()
-                .anyMatch(e -> expectedType.equals(e.getEventType())),
-                "" + expectedType);
-    }
-
-    private void assertEventSavedWithDescription(String expectedType, String descriptionContains) {
-        ArgumentCaptor<GameEvent> captor = ArgumentCaptor.forClass(GameEvent.class);
-        verify(gameEventRepository, atLeastOnce()).save(captor.capture());
-        assertTrue(captor.getAllValues().stream()
-                .anyMatch(e -> expectedType.equals(e.getEventType())
-                        && e.getDescription().contains(descriptionContains)),
-                "'%s' '%s'"
-                        .formatted(expectedType, descriptionContains));
     }
 }

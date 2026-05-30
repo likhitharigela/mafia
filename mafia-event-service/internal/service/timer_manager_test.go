@@ -1,10 +1,10 @@
 package service
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
-	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,7 +39,7 @@ func TestTimerManager(t *testing.T) {
 			assert: func(t *testing.T, tm *TimerManager) {
 				timer := tm.GetTimer("room1")
 				require.NotNil(t, timer)
-				assert.Equal(t,"room1", timer.RoomID)
+				assert.Equal(t, "room1", timer.RoomID)
 				assert.Equal(t, "NIGHT", timer.CurrentPhase)
 				assert.Equal(t, 60, timer.RemainingTime)
 			},
@@ -60,7 +60,7 @@ func TestTimerManager(t *testing.T) {
 			cleanup: func(tm *TimerManager) { tm.StopTimer("room1") },
 		},
 		{
-			name: "TestshouldRemoveTimerAfterExpiration",
+			name: "TestShouldRemoveTimerAfterExpiration",
 			setup: func(tm *TimerManager) {
 				tm.StartTimer("room1", "VOTING", 2)
 				time.Sleep(2500 * time.Millisecond)
@@ -113,16 +113,14 @@ func TestTimerManager(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tm := NewTimerManager()
+			tm := NewTimerManager(&mockTemporalClient{})
 			if tt.setup != nil {
 				tt.setup(tm)
 			}
 			if tt.assert != nil {
 				tt.assert(t, tm)
 			}
-			
-				tt.cleanup(tm)
-			
+			tt.cleanup(tm)
 		})
 	}
 }

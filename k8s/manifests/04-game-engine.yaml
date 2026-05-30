@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mafia-game-engine
+  namespace: mafia
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mafia-game-engine
+  template:
+    metadata:
+      labels:
+        app: mafia-game-engine
+    spec:
+      containers:
+        - name: mafia-game-engine
+          image: mafia-mafia-game-engine:latest
+          imagePullPolicy: Never   # use local minikube image
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              valueFrom:
+                configMapKeyRef:
+                  name: mafia-config
+                  key: SPRING_PROFILES_ACTIVE
+            - name: SPRING_DATA_MONGODB_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: mafia-config
+                  key: SPRING_DATA_MONGODB_URI
+            - name: GIN_EVENT_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: mafia-config
+                  key: GIN_EVENT_BASE_URL
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mafia-game-engine
+  namespace: mafia
+spec:
+  selector:
+    app: mafia-game-engine
+  ports:
+    - port: 8080
+      targetPort: 8080

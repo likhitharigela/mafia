@@ -16,7 +16,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # ── Temporal server (all-in-one for dev/local) ─────────────────────────────
   temporal-db:
     image: postgres:16
     container_name: mafia-temporal-db

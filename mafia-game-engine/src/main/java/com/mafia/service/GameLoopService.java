@@ -1,11 +1,12 @@
 package com.mafia.service;
 
+import org.springframework.stereotype.Service;
+
 import com.mafia.client.EventServiceClient;
 import com.mafia.entity.GameEvent;
 import com.mafia.entity.GameState;
 import com.mafia.repository.GameEventRepository;
 import com.mafia.repository.GameStateRepository;
-import org.springframework.stereotype.Service;
 
 @Service
 public class GameLoopService {

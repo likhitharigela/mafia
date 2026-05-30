@@ -13,23 +13,29 @@ import (
 
 const TaskQueue = "mafia-phase-timers"
 
+var dialClient = client.Dial
+var newWorker = func(c client.Client, taskQueue string, opts worker.Options) worker.Worker {
+	return worker.New(c, taskQueue, opts)
+}
+var interruptCh = worker.InterruptCh
+
 func Start() (client.Client, error) {
 	temporalHost := os.Getenv("TEMPORAL_HOST")
 	if temporalHost == "" {
 		temporalHost = "temporal:7233"
 	}
 
-	c, err := client.Dial(client.Options{HostPort: temporalHost})
+	c, err := dialClient(client.Options{HostPort: temporalHost})
 	if err != nil {
 		return nil, err
 	}
 
-	w := worker.New(c, TaskQueue, worker.Options{})
+	w := newWorker(c, TaskQueue, worker.Options{})
 	w.RegisterWorkflow(workflows.PhaseTimerWorkflow)
 	w.RegisterActivity(activities.AdvancePhase)
 
 	go func() {
-		if err := w.Run(worker.InterruptCh()); err != nil {
+		if err := w.Run(interruptCh()); err != nil {
 			log.Fatalf("[TemporalWorker] worker stopped: %v", err)
 		}
 	}()

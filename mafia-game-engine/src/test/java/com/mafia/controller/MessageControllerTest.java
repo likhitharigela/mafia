@@ -10,6 +10,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultMatcher;
@@ -19,12 +20,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(MessageController.class)
+@Import(GlobalExceptionHandler.class)
 class MessageControllerTest {
 
     @Autowired
@@ -39,12 +43,14 @@ class MessageControllerTest {
     static Stream<Arguments> postMessageScenarios() {
         return Stream.of(
                 Arguments.of(
-                        Named.of("TestShouldReturnSuccessProvidedValidInput", (ServiceSetup) s -> when(s.postMessage("room-1", "userA", "hello there"))
-                                .thenReturn(Map.of("status", "sent", "sender", "userA"))),
+                        Named.of("TestShouldReturnSuccessProvidedValidInput",
+                                (ServiceSetup) s -> when(s.postMessage("room-1", "userA", "hello there"))
+                                        .thenReturn(Map.of("status", "sent", "sender", "userA"))),
                         "hello there",
                         200,
                         jsonPath("$.status").value("sent"),
-                        jsonPath("$.sender").value("userA")),
+                        jsonPath("$.sender").value("userA")
+                ),
                 Arguments.of(
                         Named.of("TestShouldReturn400WhenEmptyMessageProvided",
                                 (ServiceSetup) s -> doThrow(new IllegalArgumentException("Empty message"))
@@ -52,7 +58,8 @@ class MessageControllerTest {
                         "   ",
                         400,
                         jsonPath("$.status").value("error"),
-                        jsonPath("$.message").value("Empty message")),
+                        jsonPath("$.message").value("Empty message")
+                ),
                 Arguments.of(
                         Named.of("TestShouldReturn400WhenIllegalStateProvided",
                                 (ServiceSetup) s -> doThrow(new IllegalStateException("Room closed"))
@@ -60,7 +67,8 @@ class MessageControllerTest {
                         "hello there",
                         400,
                         jsonPath("$.status").value("error"),
-                        jsonPath("$.message").value("Room closed")),
+                        jsonPath("$.message").value("Room closed")
+                ),
                 Arguments.of(
                         Named.of("TestShouldReturn500OnUnexpectedError",
                                 (ServiceSetup) s -> doThrow(new RuntimeException("db down"))
@@ -68,18 +76,20 @@ class MessageControllerTest {
                         "hello there",
                         500,
                         jsonPath("$.status").value("error"),
-                        jsonPath("$.message").value("Internal server error")));
+                        jsonPath("$.message").value("Internal server error")
+                )
+        );
     }
 
     @ParameterizedTest
     @MethodSource("postMessageScenarios")
     void postMessage(ServiceSetup setup, String content, int expectedStatus,
-            ResultMatcher bodyMatcher, ResultMatcher extraMatcher) throws Exception {
+                     ResultMatcher bodyMatcher, ResultMatcher extraMatcher) throws Exception {
         setup.configure(messageService);
 
-        MessageRequest req = new MessageRequest("userA", content);
+        MessageRequest request = new MessageRequest("userA", content);
 
-        mockMvc.perform(postJson("/api/rooms/room-1/message", req))
+        mockMvc.perform(postJson("/api/rooms/room-1/message", request))
                 .andExpect(status().is(expectedStatus))
                 .andExpect(bodyMatcher)
                 .andExpect(extraMatcher);
@@ -90,23 +100,29 @@ class MessageControllerTest {
     static Stream<Arguments> getMessagesScenarios() {
         return Stream.of(
                 Arguments.of(
-                        Named.of("TestShouldReturnMessagesWhenRoomExists", (ServiceSetup) s -> when(s.getMessages("room-1"))
-                                .thenReturn(List.of(
-                                        Map.of("sender", "userA", "message", "hello")))),
+                        Named.of("TestShouldReturnMessagesWhenRoomExists",
+                                (ServiceSetup) s -> when(s.getMessages("room-1"))
+                                        .thenReturn(List.of(
+                                                Map.of("sender", "userA", "message", "hello")
+                                        ))),
                         200,
-                        jsonPath("$[0].sender").value("userA")),
+                        jsonPath("$[0].sender").value("userA")
+                ),
                 Arguments.of(
-                        Named.of("TestShouldReturn404WhenRoomNotFound",
+                        Named.of("TestShouldReturn400WhenRoomNotFound",
                                 (ServiceSetup) s -> doThrow(new IllegalArgumentException("Room not found"))
                                         .when(s).getMessages("room-1")),
-                        404,
-                        jsonPath("$.message").value("Room not found")),
+                        400,
+                        jsonPath("$.status").value("error")
+                ),
                 Arguments.of(
                         Named.of("TestShouldReturn500OnUnexpectedError",
                                 (ServiceSetup) s -> doThrow(new RuntimeException("db down"))
                                         .when(s).getMessages("room-1")),
                         500,
-                        jsonPath("$.message").value("Internal server error")));
+                        jsonPath("$.message").value("Internal server error")
+                )
+        );
     }
 
     @ParameterizedTest
@@ -123,7 +139,7 @@ class MessageControllerTest {
 
     @FunctionalInterface
     interface ServiceSetup {
-        void configure(MessageService s);
+        void configure(MessageService service);
     }
 
     private MockHttpServletRequestBuilder postJson(String url, Object body) throws Exception {

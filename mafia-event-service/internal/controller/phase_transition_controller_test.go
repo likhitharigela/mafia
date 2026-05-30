@@ -3,36 +3,46 @@ package controller
 import (
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
 	"github.com/example/mafia-event-service/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"net/http"
-	"net/http/httptest"
-	"testing"
 )
 
+
 func setupPhaseRouter() (*gin.Engine, *service.TimerManager) {
-	gin.SetMode(gin.TestMode) // Silence pannum Gin logs ah
-	tm := service.NewTimerManager()
+	gin.SetMode(gin.TestMode)
+	tm := service.NewTimerManager(&MockTemporalClient{})
 	ptc := NewPhaseTransitionController(tm)
-	r := gin.New() //Logger and Recovery venam
+	r := gin.New()
 	ptc.RegisterPhaseRoutes(r)
 	return r, tm
 }
+
 func postJSON(r *gin.Engine, url string, body []byte) *httptest.ResponseRecorder {
-	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	var req *http.Request
+	if body != nil {
+		req, _ = http.NewRequest("POST", url, bytes.NewBuffer(body))
+	} else {
+		req, _ = http.NewRequest("POST", url, nil)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req) //starts the server without actually listening to the port
+	r.ServeHTTP(w, req)
 	return w
 }
+
 func getRequest(r *gin.Engine, url string) *httptest.ResponseRecorder {
 	req, _ := http.NewRequest("GET", url, nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
 }
+
 func TestStartPhaseTimer(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -43,7 +53,7 @@ func TestStartPhaseTimer(t *testing.T) {
 		expectedDuration int
 	}{
 		{
-			name:             "TestShouldReturnSuccesswWithValidInput",
+			name:             "TestShouldReturnSuccessWithValidInput",
 			body:             []byte(`{"phase":"VOTING","durationSeconds":30}`),
 			expectedStatus:   http.StatusOK,
 			expectedPhase:    "VOTING",
@@ -51,22 +61,22 @@ func TestStartPhaseTimer(t *testing.T) {
 			expectedDuration: 30,
 		},
 		{
-			name:             "TestShouldReturnBadRequestWhenPhaseIsMissing",
-			body:             []byte(`{"durationSeconds":30}`),
-			expectedStatus:   http.StatusBadRequest,
+			name:           "TestShouldReturnBadRequestWhenPhaseIsMissing",
+			body:           []byte(`{"durationSeconds":30}`),
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:             "TestShouldReturnBadRequestWhenDurationIsMissing",
-			body:             []byte(`{"phase":"VOTING"}`),
-			expectedStatus:   http.StatusBadRequest,
+			name:           "TestShouldReturnBadRequestWhenDurationIsMissing",
+			body:           []byte(`{"phase":"VOTING"}`),
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:             "TestShouldReturnBadRequestWhenDurationIsZero",
-			body:             []byte(`{"phase":"VOTING","durationSeconds":0}`),
-			expectedStatus:   http.StatusBadRequest,
+			name:           "TestShouldReturnBadRequestWhenDurationIsZero",
+			body:           []byte(`{"phase":"VOTING","durationSeconds":0}`),
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:             "TestShouldReturnBadRequestWhenJSONIsMalformed",
+			name:           "TestShouldReturnBadRequestWhenJSONIsMalformed",
 			body:           []byte(`{JokeJSON}`),
 			expectedStatus: http.StatusBadRequest,
 		},
@@ -93,6 +103,7 @@ func TestStartPhaseTimer(t *testing.T) {
 		})
 	}
 }
+
 func TestTransitionPhase(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -103,7 +114,7 @@ func TestTransitionPhase(t *testing.T) {
 		stopTimer      bool
 	}{
 		{
-			name:             "TestShouldReturnSuccessWithValidInput",
+			name:           "TestShouldReturnSuccessWithValidInput",
 			setupTimer:     true,
 			body:           []byte(`{"nextPhase":"NIGHT"}`),
 			expectedStatus: http.StatusOK,
@@ -111,21 +122,21 @@ func TestTransitionPhase(t *testing.T) {
 			stopTimer:      true,
 		},
 		{
-			name:             "TestShouldReturnBadRequestWhenNextPhaseIsMissing",
+			name:           "TestShouldReturnBadRequestWhenNextPhaseIsMissing",
 			setupTimer:     true,
-			body:             []byte(`{}`),
-			expectedStatus:   http.StatusBadRequest,
+			body:           []byte(`{}`),
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:             "TestShouldReturnBadRequestWhenJSONIsMalformed",
+			name:           "TestShouldReturnBadRequestWhenJSONIsMalformed",
 			setupTimer:     true,
-			body:             []byte(`{bad json`),
-			expectedStatus:   http.StatusBadRequest,
+			body:           []byte(`{bad json`),
+			expectedStatus: http.StatusBadRequest,
 		},
 		{
-			name:			 "TestShouldReturnBadRequestWhenNoActiveTimer",
-			setupTimer:	 false,
-			body:			 []byte(`{"nextPhase":"DAY"}`),
+			name:           "TestShouldReturnBadRequestWhenNoActiveTimer",
+			setupTimer:     false,
+			body:           []byte(`{"nextPhase":"DAY"}`),
 			expectedStatus: http.StatusBadRequest,
 		},
 	}
@@ -150,6 +161,7 @@ func TestTransitionPhase(t *testing.T) {
 		})
 	}
 }
+
 func TestGetPhaseStatus(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -158,17 +170,17 @@ func TestGetPhaseStatus(t *testing.T) {
 		expectedStatus int
 	}{
 		{
-			name:             "TestShouldReturnNotFoundWhenNoActiveTimer",
-			expectedStatus:   http.StatusNotFound,
+			name:           "TestShouldReturnOKWithEmptySnapshotWhenNoActiveTimer",
+			setupTimer:     false,
+			expectedStatus: http.StatusOK,
 		},
 		{
-			name:             "TestShouldReturnSuccessWithActiveTimer",
+			name:           "TestShouldReturnSuccessWithActiveTimer",
 			setupTimer:     true,
 			phase:          "NIGHT",
 			expectedStatus: http.StatusOK,
 		},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r, tm := setupPhaseRouter()
@@ -179,18 +191,18 @@ func TestGetPhaseStatus(t *testing.T) {
 			assert.Equal(t, tt.expectedStatus, w.Code)
 			var res map[string]interface{}
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &res))
-			if tt.expectedStatus == http.StatusOK {
-				assert.Equal(t, "room1", res["roomId"])
+			assert.Equal(t, "room1", res["roomId"])
+			if tt.setupTimer {
 				assert.Equal(t, tt.phase, res["phase"])
 				assert.NotEmpty(t, res["updatedAt"])
 			} else {
-				errMsg, ok := res["error"].(string)
-				require.True(t, ok, "expected error field in response") //idhu illaati assertion panic aga chance irukku
-				assert.Contains(t, errMsg, "no active timer")
+				assert.Equal(t, "", res["phase"])
+				assert.Equal(t, float64(0), res["remainingTime"])
 			}
 		})
 	}
 }
+
 func TestCancelPhaseTimer(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -198,12 +210,13 @@ func TestCancelPhaseTimer(t *testing.T) {
 		expectedStatus int
 	}{
 		{
-			name:             "TestShouldReturnSuccessWithActiveTimer",
+			name:           "TestShouldReturnSuccessWithActiveTimer",
 			setupTimer:     true,
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name:             "TestShouldReturnBadRequestsWhenNoActiveTimer",
+			name:           "TestShouldReturnBadRequestWhenNoActiveTimer",
+			setupTimer:     false,
 			expectedStatus: http.StatusBadRequest,
 		},
 	}
@@ -215,7 +228,13 @@ func TestCancelPhaseTimer(t *testing.T) {
 			}
 			w := postJSON(r, "/api/phase/room1/cancel", nil)
 			assert.Equal(t, tt.expectedStatus, w.Code)
-			assert.Nil(t, tm.GetTimer("room1"), "timer should be cancelled")
+			if tt.expectedStatus == http.StatusOK {
+				assert.Nil(t, tm.GetTimer("room1"), "timer should be cancelled")
+				var res map[string]interface{}
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &res))
+				assert.Equal(t, "room1", res["roomId"])
+				assert.Equal(t, "Phase timer cancelled", res["message"])
+			}
 		})
 	}
 }

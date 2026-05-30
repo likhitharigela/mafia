@@ -1,0 +1,160 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: temporal-postgres-pvc
+  namespace: mafia
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-db
+  namespace: mafia
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: temporal-db
+  template:
+    metadata:
+      labels:
+        app: temporal-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          env:
+            - name: TEMPORAL_ADDRESS
+              value: "temporal:7233"
+            - name: TEMPORAL_UI_PORT
+              value: "8080"
+            - name: TEMPORAL_CORS_ORIGINS
+              value: "http://localhost:30088"
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "temporal"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: temporal-postgres-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal-db
+  namespace: mafia
+spec:
+  selector:
+    app: temporal-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal
+  namespace: mafia
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: temporal
+  template:
+    metadata:
+      labels:
+        app: temporal
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox
+          command: ['sh', '-c', 'until nc -z temporal-db 5432; do echo waiting for postgres; sleep 2; done']
+      containers:
+        - name: temporal
+          image: temporalio/auto-setup:1.24.2
+          ports:
+            - containerPort: 7233
+          env:
+            - name: DB
+              value: "postgres12"
+            - name: DB_PORT
+              value: "5432"
+            - name: POSTGRES_USER
+              value: "temporal"
+            - name: POSTGRES_PWD
+              value: "temporal"
+            - name: POSTGRES_SEEDS
+              value: "temporal-db"
+          readinessProbe:
+            tcpSocket:
+              port: 7233
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal
+  namespace: mafia
+spec:
+  selector:
+    app: temporal
+  ports:
+    - port: 7233
+      targetPort: 7233
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-ui
+  namespace: mafia
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: temporal-ui
+  template:
+    metadata:
+      labels:
+        app: temporal-ui
+    spec:
+      containers:
+        - name: temporal-ui
+          image: temporalio/ui:2.26.2
+          ports:
+            - containerPort: 8080
+          env:
+            - name: TEMPORAL_ADDRESS
+              value: "temporal:7233"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: temporal-ui
+  namespace: mafia
+spec:
+  selector:
+    app: temporal-ui
+  type: NodePort
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 30088

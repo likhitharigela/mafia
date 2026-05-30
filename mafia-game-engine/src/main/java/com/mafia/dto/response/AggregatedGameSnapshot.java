@@ -16,7 +16,7 @@ public record AggregatedGameSnapshot(
                 Boolean policeGuessCorrect,
                 String winner,
                 List<Map<String, Object>> chatMessages,
-                List<Map<String, Object>> events,
+                List<Map<String, Object>> recentEvents,
                 List<String> allowedActions,
                 String roomCode,
                 String hostUsername,

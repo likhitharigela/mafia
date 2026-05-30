@@ -1,12 +1,14 @@
 package com.mafia.service;
 
-import com.mafia.entity.Message;
-import com.mafia.repository.MessageRepository;
-import com.mafia.repository.PlayerRepository;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+
 import org.springframework.stereotype.Service;
+
+import com.mafia.entity.Message;
+import com.mafia.repository.MessageRepository;
+import com.mafia.repository.PlayerRepository;
 
 @Service
 public class MessageService {
@@ -34,7 +36,7 @@ public class MessageService {
                 .filter(p -> "ALIVE".equals(p.getStatus()))
                 .orElseThrow(() -> new IllegalStateException("Dead players cannot chat"));
 
-        messageRepository.save(new Message(roomId, sender, content));
+        messageRepository.save(new Message(roomId, sender, trimmed));
         return Map.of("status", "sent", "roomId", roomId, "sender", sender);
     }
 
