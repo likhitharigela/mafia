@@ -20,7 +20,7 @@ func Run() {
 	r := gin.Default()
 
 	es := service.GetEventStore()
-	tm := service.NewTimerManager(temporalClient) // ← Temporal-backed now
+	tm := service.NewTimerManager(temporalClient)
 
 	tc := controller.NewTimerController(tm, es)
 	tc.RegisterTimerRoutes(r)

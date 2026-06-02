@@ -35,7 +35,6 @@ func NewTimerManager(temporalClient client.Client) *TimerManager {
 	}
 }
 
-// workflowID returns the deterministic Temporal workflow ID for a room.
 func workflowID(roomID string) string {
 	return fmt.Sprintf("phase-timer-%s", roomID)
 }
@@ -52,7 +51,7 @@ func (tm *TimerManager) StartTimer(roomID string, phase string, durationSec int)
 			ID:        wfID,
 			TaskQueue: temporalworker.TaskQueue,
 		},
-		workflows.PhaseTimerWorkflow,
+		workflows.PhaseTimerWorkflow,	
 		workflows.PhaseTimerInput{
 			RoomID:      roomID,
 			Phase:       phase,
