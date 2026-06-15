@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from xmlrpc import client
 
 import httpx
 
@@ -339,10 +340,10 @@ async def advance_phase(
     winner = snap.get("winner", "NONE")
 
     # Signal the workflow — it starts the timer via start_phase_timer_activity.
-    await signal_phase_advanced(client, room_id, new_phase)
-
     if winner and winner != "NONE":
         await signal_game_ended(client, room_id, winner)
+    else:
+        await signal_phase_advanced(client, room_id, new_phase)
 
     return ApiResponse(message="OK")
 
@@ -362,10 +363,10 @@ async def internal_advance_phase(payload: AdvancePhaseRequest) -> ApiResponse:
     new_phase = snap.get("phase", "")
     winner = snap.get("winner", "NONE")
 
-    await signal_phase_advanced(client, room_id, new_phase)
-
     if winner and winner != "NONE":
         await signal_game_ended(client, room_id, winner)
+    else:
+        await signal_phase_advanced(client, room_id, new_phase)
 
     return ApiResponse(message="OK")
 

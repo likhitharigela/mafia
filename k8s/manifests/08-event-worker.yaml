@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mafia-event-worker
+  namespace: mafia
+spec:
+  replicas: 1        # KEDA will override this — set to 1 as a safe default
+  selector:
+    matchLabels:
+      app: mafia-event-worker
+  template:
+    metadata:
+      labels:
+        app: mafia-event-worker
+    spec:
+      initContainers:
+        - name: wait-for-temporal
+          image: busybox
+          command: ['sh', '-c', 'until nc -z temporal 7233; do echo waiting for temporal; sleep 3; done']
+      containers:
+        - name: mafia-event-worker
+          image: mafia-mafia-event-worker:latest
+          imagePullPolicy: Never
+          env:
+            - name: TEMPORAL_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: mafia-config
+                  key: TEMPORAL_HOST
+            - name: EVENT_SERVICE_PORT     # not used by worker, but harmless
+              valueFrom:
+                configMapKeyRef:
+                  name: mafia-config
+                  key: EVENT_SERVICE_PORT
+            - name: GATEWAY_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: mafia-config
+                  key: GATEWAY_BASE_URL
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mafia-secrets
+                  key: INTERNAL_SERVICE_TOKEN
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"

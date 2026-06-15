@@ -22,7 +22,7 @@ data:
   SPRING_PROFILES_ACTIVE: "dev"
   SPRING_DATA_MONGODB_URI: "mongodb://admin:password123@mongodb:27017/mafia?authSource=admin"
   MONGO_DATABASE: "mafia"
-  GIN_EVENT_BASE_URL: "http://mafia-event-service:8081/api"
+  GIN_EVENT_BASE_URL: http://mafia-event-service:8081
   SPRING_ENGINE_BASE_URL: "http://mafia-game-engine:8080"
   GATEWAY_HOST: "0.0.0.0"
   GATEWAY_PORT: "8000"

@@ -1,0 +1,81 @@
+# KEDA ScaledObject — event-service worker (Go)
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: event-worker-scaler
+  namespace: mafia
+spec:
+  scaleTargetRef:
+    name: mafia-event-worker
+  minReplicaCount: 1
+  maxReplicaCount: 5
+  triggers:
+    - type: temporal
+      metadata:
+        endpoint: temporal.mafia.svc.cluster.local:7233
+        namespace: default
+        taskQueue: mafia-phase-timers
+        targetQueueSize: "1"
+
+---
+# KEDA ScaledObject — gateway-service worker (Python)
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: gateway-worker-scaler
+  namespace: mafia
+spec:
+  scaleTargetRef:
+    name: mafia-gateway-worker
+  minReplicaCount: 1
+  maxReplicaCount: 5
+  triggers:
+    - type: temporal
+      metadata:
+        endpoint: temporal.mafia.svc.cluster.local:7233
+        namespace: default
+        taskQueue: mafia-gateway
+        targetQueueSize: "1"
+
+---
+# CronJob — stale room cleanup
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: stale-room-cleanup
+  namespace: mafia
+spec:
+  schedule: "*/15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          initContainers:
+            - name: wait-for-temporal
+              image: busybox
+              command: ['sh', '-c', 'until nc -z temporal 7233; do echo waiting for temporal; sleep 3; done']
+          containers:
+            - name: cleanup
+              image: mafia-mafia-gateway-service:latest
+              imagePullPolicy: Never
+              command: ["python", "/workspace/clean_job.py"]
+              env:
+                - name: TEMPORAL_HOST
+                  valueFrom:
+                    configMapKeyRef:
+                      name: mafia-config
+                      key: TEMPORAL_HOST
+                - name: MAX_WAIT_HOURS
+                  value: "2"
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "128Mi"

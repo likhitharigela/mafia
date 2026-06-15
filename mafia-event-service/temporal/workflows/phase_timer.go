@@ -15,8 +15,8 @@ type PhaseTimerInput struct {
 
 
 var retryPolicy = &temporal.RetryPolicy{
-	InitialInterval:    2 * time.Second,
-	BackoffCoefficient: 2.0,
+	InitialInterval:    1 * time.Second,
+	BackoffCoefficient: 1.0,
 	MaximumInterval:    30 * time.Second,
 	MaximumAttempts:    3,
 }

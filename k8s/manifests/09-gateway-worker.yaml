@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mafia-gateway-worker
+  namespace: mafia
+spec:
+  replicas: 1        # KEDA will override this
+  selector:
+    matchLabels:
+      app: mafia-gateway-worker
+  template:
+    metadata:
+      labels:
+        app: mafia-gateway-worker
+    spec:
+      initContainers:
+        - name: wait-for-temporal
+          image: busybox
+          command: ['sh', '-c', 'until nc -z temporal 7233; do echo waiting for temporal; sleep 3; done']
+      containers:
+        - name: mafia-gateway-worker
+          image: mafia-mafia-gateway-service:latest   # same image, different CMD
+          imagePullPolicy: Never
+          command: ["python", "worker_main.py"]
+          env:
+            - name: TEMPORAL_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: mafia-config
+                  key: TEMPORAL_HOST
+            - name: SPRING_ENGINE_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: mafia-config
+                  key: SPRING_ENGINE_BASE_URL
+            - name: GIN_EVENT_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: mafia-config
+                  key: GIN_EVENT_BASE_URL
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mafia-secrets
+                  key: INTERNAL_SERVICE_TOKEN
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "96Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
